@@ -185,7 +185,7 @@ function DoctorDashboard() {
           {/* Clinical Metrics Overview */}
           <div className="glass-modern p-6 rounded-[2rem] border border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)]">
             <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
-              📊 Diagnostic Statistics
+               Diagnostic Statistics
             </h3>
             <div className="space-y-6">
               {[

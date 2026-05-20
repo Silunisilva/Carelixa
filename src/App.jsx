@@ -17,7 +17,7 @@ function ProtectedRoute({ children, allowedRole }) {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <img src="/logo.svg" alt="AutismCare Logo" className="h-94 w-auto animate-pulse mb-4 mx-auto" />
-          <p className="text-gray-600 font-medium">Loading...</p>
+          <p className="text-gray-600 font-medium">Loading....</p>
         </div>
       </div>
     );
