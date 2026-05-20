@@ -137,7 +137,7 @@ function AddChildModal({ isOpen, onClose, onChildAdded, parentId }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Child's Name *
+              Child's Name 
             </label>
             <input
               type="text"
@@ -153,7 +153,7 @@ function AddChildModal({ isOpen, onClose, onChildAdded, parentId }) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Age *
+                Age 
               </label>
               <input
                 type="number"
@@ -186,7 +186,7 @@ function AddChildModal({ isOpen, onClose, onChildAdded, parentId }) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Diagnosis/Condition *
+              Diagnosis/Condition 
             </label>
             <input
               type="text"
