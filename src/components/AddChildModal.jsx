@@ -95,7 +95,7 @@ function AddChildModal({ isOpen, onClose, onChildAdded, parentId }) {
         onChildAdded(newChild);
       }
 
-      // Close modal after 2 seconds
+      // Close modal after 1.5 seconds
       setTimeout(() => {
         onClose();
       }, 2000);
@@ -131,6 +131,7 @@ function AddChildModal({ isOpen, onClose, onChildAdded, parentId }) {
         {success && (
           <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
             <p className="text-sm text-green-700">✓ {success}</p>
+            <p className="text-xs text-green-600 mt-1 font-medium">Don't forget to complete the M-CHAT screening for initial risk assessment!</p>
           </div>
         )}
 

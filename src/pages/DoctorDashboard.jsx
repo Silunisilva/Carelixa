@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import DashboardLayout from '../components/DashboardLayout';
 import { mockChildren, mockDocuments, mockTimeline, mockAIPlans } from '../data/mockData';
-import { getDoctorChildren } from '../services/dataService';
+import { getDoctorChildren, getMCHATScore } from '../services/dataService';
 import ProgressTracker from '../components/ProgressTracker';
 
 function randomHex(len = 16) {
@@ -19,6 +19,7 @@ function DoctorDashboard() {
   const [assignedChildren, setAssignedChildren] = useState([]);
   const [selectedChild, setSelectedChild] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [mchatScores, setMchatScores] = useState({});
 
   const [documents, setDocuments] = useState(mockDocuments);
   const [timeline, setTimeline] = useState(mockTimeline);
@@ -44,6 +45,16 @@ function DoctorDashboard() {
       if (children.length > 0) {
         setAssignedChildren(children);
         setSelectedChild(children[0]);
+        
+        // Load M-CHAT scores for all children
+        const scores = {};
+        for (const child of children) {
+          const mchatData = await getMCHATScore(child.id);
+          if (mchatData) {
+            scores[child.id] = mchatData;
+          }
+        }
+        setMchatScores(scores);
       } else {
         // Fallback to mock data if no children in database
         const mockDoctorChildren = mockChildren.filter((c) => c.doctorId === 'doctor1');
@@ -225,11 +236,25 @@ function DoctorDashboard() {
                 <h2 className="text-4xl font-black text-gray-800 tracking-tight leading-none mb-2">
                   {selectedChild?.name}
                 </h2>
-                <div className="flex items-center gap-4 text-gray-500 font-medium">
+                <div className="flex items-center gap-4 text-gray-500 font-medium mb-4">
                   <span className="flex items-center gap-1">🧬 {selectedChild.diagnosis}</span>
                   <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                   <span className="flex items-center gap-1">🗓️ Enrolled {selectedChild.enrolledDate}</span>
                 </div>
+                
+                {mchatScores[selectedChild?.id] && (
+                  <div className={`inline-flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold ${
+                    mchatScores[selectedChild?.id].riskLevel === 'Low Risk'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : mchatScores[selectedChild?.id].riskLevel === 'Medium Risk'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    <span>M-CHAT Initial Screening:</span>
+                    <span className="font-black">{mchatScores[selectedChild?.id].riskLevel}</span>
+                    <span className="text-[10px]">(Score: {mchatScores[selectedChild?.id].score})</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2 p-1 bg-gray-100/50 rounded-2xl border border-white/50">

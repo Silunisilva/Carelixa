@@ -1,12 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import { mchatQuestions, calculateMCHATScore } from '../data/mchatQuestions';
+import { saveMCHATScore, getChild } from '../services/dataService';
 
 function MCHATScreening() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const childId = searchParams.get('childId');
+  const [child, setChild] = useState(null);
+  const [loading, setLoading] = useState(!!childId);
+
   const [answers, setAnswers] = useState(Array(20).fill(null));
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [savingToDb, setSavingToDb] = useState(false);
+  const [previousScore, setPreviousScore] = useState(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Load child info if childId is provided
+  useEffect(() => {
+    if (childId) {
+      loadChild();
+    } else {
+      setLoading(false);
+    }
+  }, [childId]);
+
+  const loadChild = async () => {
+    try {
+      const childData = await getChild(childId);
+      setChild(childData);
+      
+      // Load previous M-CHAT score if it exists
+      if (childData?.mchatCompleted) {
+        setPreviousScore({
+          score: childData.mchatScore,
+          riskLevel: childData.mchatRiskLevel,
+          completedAt: childData.mchatCompletedAt,
+        });
+        setIsUpdating(true);
+      }
+    } catch (err) {
+      console.error('Error loading child:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAnswerChange = (index, value) => {
     const newAnswers = [...answers];
@@ -27,7 +68,7 @@ function MCHATScreening() {
     setSubmitted(true);
   };
 
-  const handleSaveForLater = () => {
+  const handleSaveForLater = async () => {
     const data = {
       timestamp: new Date().toISOString(),
       answers,
@@ -37,11 +78,27 @@ function MCHATScreening() {
       totalQuestions: mchatQuestions.length
     };
 
-    console.log('M-CHAT Screening Data (Save for Later):', data);
-    setShowSaveConfirm(true);
-
-    // Reset confirmation after 3 seconds
-    setTimeout(() => setShowSaveConfirm(false), 3000);
+    try {
+      if (childId) {
+        setSavingToDb(true);
+        await saveMCHATScore(childId, {
+          score: result.score,
+          riskLevel: result.riskLevel,
+          answers,
+        });
+        setShowSaveConfirm(true);
+        setTimeout(() => setShowSaveConfirm(false), 3000);
+      } else {
+        console.log('M-CHAT Screening Data (Save for Later):', data);
+        setShowSaveConfirm(true);
+        setTimeout(() => setShowSaveConfirm(false), 3000);
+      }
+    } catch (err) {
+      console.error('Error saving M-CHAT score:', err);
+      alert('Failed to save M-CHAT score. Please try again.');
+    } finally {
+      setSavingToDb(false);
+    }
   };
 
   const handleDownloadPDF = () => {
@@ -70,7 +127,16 @@ function MCHATScreening() {
   return (
     <DashboardLayout title="M-CHAT Screening Assessment">
       <div className="max-w-4xl mx-auto pb-10">
-        {!submitted ? (
+        {loading && (
+          <div className="flex items-center justify-center py-20">
+            <div className="text-center">
+              <div className="animate-spin text-4xl mb-4">⏳</div>
+              <p className="text-gray-600 font-medium">Loading...</p>
+            </div>
+          </div>
+        )}
+
+        {!loading && !submitted ? (
           <div className="space-y-6">
             {/* Header Section */}
             <section className="glass-modern p-8 rounded-[2.5rem] border border-white/30 shadow-[0_15px_40px_-10px_rgba(0,0,0,0.05)]">
@@ -78,8 +144,15 @@ function MCHATScreening() {
                 <div>
                   <h1 className="text-4xl font-black text-gray-800 tracking-tight leading-none mb-2">
                     M-CHAT Screening Assessment
+                    {child && <span className="text-2xl text-blue-600 block mt-2">for {child.name}</span>}
                   </h1>
-                  <p className="text-gray-600 font-medium max-w-2xl">
+                  {isUpdating && previousScore && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm font-bold text-blue-900">📝 Updating Previous Assessment</p>
+                      <p className="text-xs text-blue-700 mt-1">Previous Score: <span className="font-black">{previousScore.riskLevel}</span> ({previousScore.score})</p>
+                    </div>
+                  )}
+                  <p className="text-gray-600 font-medium max-w-2xl mt-3">
                     Please answer the following questions based on your child's typical behavior and development. This screening tool helps identify potential developmental concerns.
                   </p>
                 </div>
@@ -192,6 +265,21 @@ function MCHATScreening() {
               </div>
 
               <div className="relative z-10">
+                {isUpdating && previousScore && (
+                  <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded">
+                    <p className="text-sm font-bold text-amber-900 mb-2">📊 Score Update</p>
+                    <div className="flex items-center justify-between text-xs">
+                      <div>
+                        <p className="text-gray-700">Previous: <span className="font-black text-amber-700">{previousScore.riskLevel}</span> ({previousScore.score})</p>
+                      </div>
+                      <span className="text-lg">→</span>
+                      <div>
+                        <p className="text-gray-700">New: <span className="font-black text-blue-700">{result.riskLevel}</span> ({result.score})</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-4 mb-8">
                   <div className={`w-16 h-16 rounded-3xl flex items-center justify-center text-4xl font-black text-white shadow-lg ${
                     result.riskLevel === 'Low Risk'
@@ -243,18 +331,25 @@ function MCHATScreening() {
               </p>
 
               {showSaveConfirm && (
-                <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
-                  <span className="text-2xl">✓</span>
-                  <p className="font-bold text-emerald-900">Assessment saved! Check console for data.</p>
+                <div className={`mb-4 p-4 rounded-xl flex items-center gap-3 ${
+                  isUpdating
+                    ? 'bg-blue-50 border border-blue-200'
+                    : 'bg-emerald-50 border border-emerald-200'
+                }`}>
+                  <span className="text-2xl">{isUpdating ? '🔄' : '✓'}</span>
+                  <p className={`font-bold ${isUpdating ? 'text-blue-900' : 'text-emerald-900'}`}>
+                    {isUpdating ? 'Assessment updated successfully!' : 'Assessment saved successfully!'}
+                  </p>
                 </div>
               )}
 
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={handleSaveForLater}
-                  className="flex-1 px-6 py-3 bg-white hover:bg-blue-50 border-2 border-blue-600 text-blue-600 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                  disabled={savingToDb}
+                  className="flex-1 px-6 py-3 bg-white hover:bg-blue-50 border-2 border-blue-600 text-blue-600 font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  💾 Save Assessment
+                  💾 {savingToDb ? 'Saving...' : 'Save Assessment'}
                 </button>
 
                 <button
@@ -264,16 +359,28 @@ function MCHATScreening() {
                   📥 Download Report
                 </button>
 
-                <button
-                  onClick={() => {
-                    setAnswers(Array(20).fill(null));
-                    setSubmitted(false);
-                    setResult(null);
-                  }}
-                  className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-all"
-                >
-                  ↻ Start Over
-                </button>
+                {showSaveConfirm && (
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {childId ? (
+                      <button
+                        onClick={() => navigate('/parent-dashboard')}
+                        className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                      >
+                        ✓ Return to Dashboard
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() => {
+                        setAnswers(Array(20).fill(null));
+                        setSubmitted(false);
+                        setResult(null);
+                      }}
+                      className="flex-1 sm:flex-initial px-6 py-3 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold rounded-xl transition-all"
+                    >
+                      ↻ Retake Test
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

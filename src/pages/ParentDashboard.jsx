@@ -4,8 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import DashboardLayout from '../components/DashboardLayout';
 import AddChildModal from '../components/AddChildModal';
 import ManageChildAssignments from '../components/ManageChildAssignments';
-import { mockChildren, mockTimeline, mockAIPlans, mockDocuments } from '../data/mockData';
-import { getParentChildren } from '../services/dataService';
+import MCHATModal from '../components/MCHATModal';
+import { mockChildren, mockTimeline, mockAIPlans, mockDocuments, mockTeachers, mockDoctors } from '../data/mockData';
+import { getParentChildren, getUser, getMCHATScore } from '../services/dataService';
 import ProgressTracker from '../components/ProgressTracker';
 
 function ParentDashboard() {
@@ -18,6 +19,12 @@ function ParentDashboard() {
   const [loading, setLoading] = useState(true);
   const [showAddChild, setShowAddChild] = useState(false);
   const [showManageAssignments, setShowManageAssignments] = useState(false);
+  const [showMCHAT, setShowMCHAT] = useState(false);
+  const [nextDoctorVisits, setNextDoctorVisits] = useState({});
+  const [editingDateFor, setEditingDateFor] = useState(null);
+  const [careTeamDoctors, setCareTeamDoctors] = useState([]);
+  const [careTeamTeachers, setCareTeamTeachers] = useState([]);
+  const [mchatScores, setMchatScores] = useState({});
 
   // Fetch children from Firestore
   useEffect(() => {
@@ -29,13 +36,45 @@ function ParentDashboard() {
   const loadChildren = async () => {
     try {
       setLoading(true);
-      const children = await getParentChildren(currentUser.id);
+      let children = await getParentChildren(currentUser.id);
+      
+      // Fallback to mock data if no children found, or populate with mock data for demo
+      if (children.length === 0) {
+        children = mockChildren.filter(c => c.parentId === currentUser.id);
+      }
+      
+      // Ensure each child has linkedDoctors and linkedTeachers arrays
+      children = children.map(child => {
+        const linkedDoctors = child.linkedDoctors && Array.isArray(child.linkedDoctors) 
+          ? child.linkedDoctors 
+          : (child.doctorId ? [child.doctorId] : []);
+        
+        const linkedTeachers = child.linkedTeachers && Array.isArray(child.linkedTeachers)
+          ? child.linkedTeachers
+          : (child.teacherId ? [child.teacherId] : []);
+        
+        return {
+          ...child,
+          linkedDoctors,
+          linkedTeachers,
+        };
+      });
+      
       setMyChildren(children);
+      // Initialize doctor visit dates
+      const visitDates = {};
+      children.forEach(child => {
+        visitDates[child.id] = '2026-09-22';
+      });
+      setNextDoctorVisits(visitDates);
       if (children.length > 0) {
         setSelectedChild(children[0]);
       } else {
         setSelectedChild(null); // Empty state for new parents
       }
+      
+      // Load M-CHAT scores for all children
+      loadMCHATScores(children);
     } catch (err) {
       console.error('Error loading children:', err);
       setMyChildren([]);
@@ -45,9 +84,139 @@ function ParentDashboard() {
     }
   };
 
+  const loadMCHATScores = async (children) => {
+    try {
+      const scores = {};
+      for (const child of children) {
+        const mchatData = await getMCHATScore(child.id);
+        if (mchatData) {
+          scores[child.id] = mchatData;
+        }
+      }
+      setMchatScores(scores);
+    } catch (err) {
+      console.error('Error loading M-CHAT scores:', err);
+    }
+  };
+
   const handleChildAdded = (newChild) => {
     setMyChildren([...myChildren, newChild]);
     setSelectedChild(newChild);
+    setNextDoctorVisits(prev => ({
+      ...prev,
+      [newChild.id]: '2026-09-22'
+    }));
+  };
+
+  const handleMCHATScoreSaved = (scoreData) => {
+    if (selectedChild) {
+      setMchatScores(prev => ({
+        ...prev,
+        [selectedChild.id]: scoreData,
+      }));
+      // Update selected child to reflect new score
+      setSelectedChild(prev => ({
+        ...prev,
+        mchatScore: scoreData.score,
+        mchatRiskLevel: scoreData.riskLevel,
+        mchatCompleted: true,
+      }));
+    }
+  };
+
+  // Refresh selected child data after care team assignments
+  const handleManageAssignmentsClose = async () => {
+    setShowManageAssignments(false);
+    // Refresh the selected child to get updated linkedTeachers and linkedDoctors
+    if (selectedChild) {
+      try {
+        const updatedChildren = await getParentChildren(currentUser.id);
+        const updatedChild = updatedChildren.find(c => c.id === selectedChild.id);
+        if (updatedChild) {
+          // Ensure linked arrays are set
+          updatedChild.linkedDoctors = updatedChild.linkedDoctors || (updatedChild.doctorId ? [updatedChild.doctorId] : []);
+          updatedChild.linkedTeachers = updatedChild.linkedTeachers || (updatedChild.teacherId ? [updatedChild.teacherId] : []);
+          setSelectedChild(updatedChild);
+          // Also update in myChildren list
+          setMyChildren(prevChildren =>
+            prevChildren.map(c => c.id === updatedChild.id ? updatedChild : c)
+          );
+        }
+      } catch (err) {
+        console.error('Error refreshing child data:', err);
+      }
+    }
+  };
+
+  // Fetch care team members for selected child
+  useEffect(() => {
+    const loadCareTeam = async () => {
+      if (!selectedChild) {
+        setCareTeamDoctors([]);
+        setCareTeamTeachers([]);
+        return;
+      }
+
+      try {
+        // Fetch doctors
+        const doctorIds = selectedChild.linkedDoctors && Array.isArray(selectedChild.linkedDoctors)
+          ? selectedChild.linkedDoctors
+          : (selectedChild.doctorId ? [selectedChild.doctorId] : []);
+        
+        const doctors = await Promise.all(
+          doctorIds.map(id => getUser(id))
+        );
+        setCareTeamDoctors(doctors.filter(d => d !== null));
+
+        // Fetch teachers
+        const teacherIds = selectedChild.linkedTeachers && Array.isArray(selectedChild.linkedTeachers)
+          ? selectedChild.linkedTeachers
+          : (selectedChild.teacherId ? [selectedChild.teacherId] : []);
+        
+        const teachers = await Promise.all(
+          teacherIds.map(id => getUser(id))
+        );
+        setCareTeamTeachers(teachers.filter(t => t !== null));
+
+        // Reload M-CHAT score for this child
+        const mchatData = await getMCHATScore(selectedChild.id);
+        if (mchatData) {
+          setMchatScores(prev => ({
+            ...prev,
+            [selectedChild.id]: mchatData,
+          }));
+        }
+      } catch (err) {
+        console.error('Error loading care team:', err);
+        setCareTeamDoctors([]);
+        setCareTeamTeachers([]);
+      }
+    };
+
+    loadCareTeam();
+  }, [selectedChild?.id]);
+
+  // Get care team members for selected child (using state instead of mocking)
+  const doctors = careTeamDoctors;
+  const teachers = careTeamTeachers;
+  const nextVisitDate = selectedChild ? nextDoctorVisits[selectedChild.id] || '2026-09-22' : null;
+
+  // Format date for display
+  const formatDateDisplay = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  // Handle date change
+  const handleDateChange = (e) => {
+    if (selectedChild) {
+      setNextDoctorVisits(prev => ({
+        ...prev,
+        [selectedChild.id]: e.target.value
+      }));
+      setEditingDateFor(null);
+    }
   };
 
   const childTimeline = mockTimeline.filter(event => event.childId === selectedChild?.id);
@@ -77,26 +246,41 @@ function ParentDashboard() {
                   <button
                     key={child.id}
                     onClick={() => setSelectedChild(child)}
-                    className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group relative overflow-hidden ${selectedChild?.id === child.id
-                      ? 'bg-white shadow-[0_10px_25px_-5px_rgba(14,165,233,0.15)] scale-[1.02]'
-                      : 'hover:bg-white/40 border border-transparent'
+                    className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group relative overflow-hidden ${
+                      selectedChild?.id === child.id
+                        ? 'bg-white shadow-[0_10px_25px_-5px_rgba(14,165,233,0.15)] scale-[1.02]'
+                        : 'hover:bg-white/40 border border-transparent'
                       }`}
                   >
                     {selectedChild?.id === child.id && (
                       <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-blue-500 to-cyan-500"></div>
                     )}
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner ${selectedChild?.id === child.id ? 'bg-blue-50' : 'bg-gray-50'
+                    <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner ${
+                        selectedChild?.id === child.id ? 'bg-blue-50' : 'bg-gray-50'
                         }`}>
                         {child.gender === 'female' ? '👧' : '👦'}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className={`font-bold truncate ${selectedChild?.id === child.id ? 'text-gray-900' : 'text-gray-700'}`}>
+                        <div className={`font-bold truncate ${
+                          selectedChild?.id === child.id ? 'text-gray-900' : 'text-gray-700'
+                        }`}>
                           {child.name}
                         </div>
                         <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-0.5">
                           {child.diagnosis}
                         </div>
+                        {mchatScores[child.id] && (
+                          <div className={`text-[9px] font-black mt-1 px-2 py-0.5 rounded inline-block ${
+                            mchatScores[child.id].riskLevel === 'Low Risk'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : mchatScores[child.id].riskLevel === 'Medium Risk'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}>
+                            M-CHAT: {mchatScores[child.id].riskLevel}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -130,29 +314,72 @@ function ParentDashboard() {
             <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl mb-6">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-xl shadow-sm">📅</div>
-                <div>
+                <div className="flex-1">
                   <p className="text-xs font-black text-blue-600 uppercase">Doctor Visit</p>
-                  <p className="font-bold text-gray-800">Sept 22, 2026</p>
+                  {editingDateFor === selectedChild?.id ? (
+                    <div className="flex gap-2 mt-2">
+                      <input
+                        type="date"
+                        value={nextVisitDate}
+                        onChange={handleDateChange}
+                        className="px-3 py-1 rounded-lg border border-blue-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        onClick={() => setEditingDateFor(null)}
+                        className="px-3 py-1 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-gray-800">{formatDateDisplay(nextVisitDate)}</p>
+                      <button
+                        onClick={() => setEditingDateFor(selectedChild?.id)}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-              <p className="text-[11px] text-gray-500 font-medium">Routine developmental screening with Dr. Sarah Miller.</p>
+              <p className="text-[11px] text-gray-500 font-medium">Routine developmental screening.</p>
             </div>
 
             <div className="space-y-4">
               <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Assigned Care Team</h4>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs">👨‍⚕️</div>
-                <div className="text-xs">
-                  <p className="font-bold text-gray-800">Dr. Sarah Miller</p>
-                  <p className="text-gray-500">Therapeutic Lead</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center text-xs">👩‍🏫</div>
-                <div className="text-xs">
-                  <p className="font-bold text-gray-800">Ms. Sarah J.</p>
-                  <p className="text-gray-500">Classroom Educator</p>
-                </div>
+              
+              <div className="space-y-3">
+                {doctors.length > 0 && (
+                  <>
+                    <div className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Doctors</div>
+                    {doctors.map((doctor) => (
+                      <div key={doctor.id} className="flex items-center gap-3 p-3 bg-white/40 rounded-lg">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex-shrink-0 flex items-center justify-center text-xs">👨‍⚕️</div>
+                        <div className="text-xs flex-1 min-w-0">
+                          <p className="font-bold text-gray-800">{doctor.name}</p>
+                          {doctor.specialization && <p className="text-gray-500 text-[10px]">{doctor.specialization}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                
+                {teachers.length > 0 && (
+                  <>
+                    <div className="text-[9px] font-black text-gray-300 uppercase tracking-widest mt-4">Teachers</div>
+                    {teachers.map((teacher) => (
+                      <div key={teacher.id} className="flex items-center gap-3 p-3 bg-white/40 rounded-lg">
+                        <div className="w-8 h-8 rounded-full bg-pink-100 flex-shrink-0 flex items-center justify-center text-xs">👩‍🏫</div>
+                        <div className="text-xs flex-1 min-w-0">
+                          <p className="font-bold text-gray-800">{teacher.name}</p>
+                          {teacher.specialization && <p className="text-gray-500 text-[10px]">{teacher.specialization}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -163,7 +390,7 @@ function ParentDashboard() {
               🧠 Screening Tools
             </h3>
             <button
-              onClick={() => navigate('/mchat')}
+              onClick={() => setShowMCHAT(true)}
               className="w-full p-4 bg-white hover:bg-indigo-50 border-2 border-indigo-200 text-indigo-700 font-bold rounded-2xl transition-all flex items-center gap-3 group"
             >
               <span className="text-2xl group-hover:scale-110 transition-transform">📋</span>
@@ -202,26 +429,65 @@ function ParentDashboard() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 p-1 bg-gray-100/30 rounded-2xl border border-white/50 backdrop-blur-md">
-                  {[
-                    { id: 'analysis', label: 'Analysis', icon: '👁️' },
-                    { id: 'sync', label: 'Home Sync', icon: '🔄' },
-                    { id: 'insights', label: 'AI Strategy', icon: '🤖' },
-                    { id: 'vault', label: 'Reports', icon: '📊' }
-                  ].map((t) => (
+                <div>
+                  {mchatScores[selectedChild?.id] ? (
+                    <div className={`p-4 rounded-2xl text-center ${
+                      mchatScores[selectedChild?.id].riskLevel === 'Low Risk'
+                        ? 'bg-emerald-50 border-2 border-emerald-300'
+                        : mchatScores[selectedChild?.id].riskLevel === 'Medium Risk'
+                        ? 'bg-amber-50 border-2 border-amber-300'
+                        : 'bg-red-50 border-2 border-red-300'
+                    }`}>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">M-CHAT Risk Level</p>
+                      <p className={`text-xl font-black ${
+                        mchatScores[selectedChild?.id].riskLevel === 'Low Risk'
+                          ? 'text-emerald-700'
+                          : mchatScores[selectedChild?.id].riskLevel === 'Medium Risk'
+                          ? 'text-amber-700'
+                          : 'text-red-700'
+                      }`}>
+                        {mchatScores[selectedChild?.id].riskLevel}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">Score: {mchatScores[selectedChild?.id].score}</p>
+                      <button
+                        onClick={() => setShowMCHAT(true)}
+                        className="text-[10px] font-black text-blue-600 hover:text-blue-800 mt-2 underline"
+                      >
+                        Retake Test →
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      key={t.id}
-                      onClick={() => setTab(t.id)}
-                      className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2 ${tab === t.id
-                        ? 'bg-white text-blue-600 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-800'
-                        }`}
+                      onClick={() => setShowMCHAT(true)}
+                      className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-300 hover:bg-blue-100 transition-all text-center w-full"
                     >
-                      <span>{t.icon}</span>
-                      {t.label}
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">M-CHAT</p>
+                      <p className="text-lg font-black text-blue-700">Not Completed</p>
+                      <p className="text-xs text-blue-600 mt-1">Click to begin screening →</p>
                     </button>
-                  ))}
+                  )}
                 </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 p-1 bg-gray-100/30 rounded-2xl border border-white/50 backdrop-blur-md">
+                {[
+                  { id: 'analysis', label: 'Analysis', icon: '👁️' },
+                  { id: 'sync', label: 'Home Sync', icon: '🔄' },
+                  { id: 'insights', label: 'AI Strategy', icon: '🤖' },
+                  { id: 'vault', label: 'Reports', icon: '📊' }
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2 ${tab === t.id
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                  >
+                    <span>{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
               </div>
             </div>
           </section>
@@ -357,7 +623,6 @@ function ParentDashboard() {
                   </button>
                 </div>
 
-                <ProgressTracker child={selectedChild} role="parent" onSave={() => { }} />
               </div>
             )}
 
@@ -507,8 +772,17 @@ function ParentDashboard() {
       {selectedChild && (
         <ManageChildAssignments
           isOpen={showManageAssignments}
-          onClose={() => setShowManageAssignments(false)}
+          onClose={handleManageAssignmentsClose}
           child={selectedChild}
+        />
+      )}
+
+      {selectedChild && (
+        <MCHATModal
+          isOpen={showMCHAT}
+          onClose={() => setShowMCHAT(false)}
+          child={selectedChild}
+          onScoreSaved={handleMCHATScoreSaved}
         />
       )}
     </DashboardLayout>

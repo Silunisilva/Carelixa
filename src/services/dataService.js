@@ -158,6 +158,45 @@ export const updateChild = async (childId, updates) => {
   }
 };
 
+/**
+ * Save M-CHAT screening results for a child
+ */
+export const saveMCHATScore = async (childId, mchatData) => {
+  try {
+    const docRef = fbDoc(db, 'children', childId);
+    await fbUpdateDoc(docRef, {
+      mchatScore: mchatData.score,
+      mchatRiskLevel: mchatData.riskLevel,
+      mchatAnswers: mchatData.answers,
+      mchatCompletedAt: new Date().toISOString(),
+      mchatCompleted: true,
+    });
+  } catch (error) {
+    console.error('Error saving M-CHAT score:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get M-CHAT screening results for a child
+ */
+export const getMCHATScore = async (childId) => {
+  try {
+    const child = await getChild(childId);
+    if (child && child.mchatCompleted) {
+      return {
+        score: child.mchatScore,
+        riskLevel: child.mchatRiskLevel,
+        completedAt: child.mchatCompletedAt,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching M-CHAT score:', error);
+    return null;
+  }
+};
+
 // ─── Teachers Management ───────────────────────────────────────────
 
 /**
