@@ -188,6 +188,7 @@ export const getMCHATScore = async (childId) => {
         score: child.mchatScore,
         riskLevel: child.mchatRiskLevel,
         completedAt: child.mchatCompletedAt,
+        answers: child.mchatAnswers || [],
       };
     }
     return null;

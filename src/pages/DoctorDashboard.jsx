@@ -4,6 +4,7 @@ import DashboardLayout from '../components/DashboardLayout';
 import { mockChildren, mockDocuments, mockTimeline, mockAIPlans } from '../data/mockData';
 import { getDoctorChildren, getMCHATScore } from '../services/dataService';
 import ProgressTracker from '../components/ProgressTracker';
+import MCHATResponsesViewer from '../components/MCHATResponsesViewer';
 
 function randomHex(len = 16) {
   const chars = 'abcdef0123456789';
@@ -25,6 +26,7 @@ function DoctorDashboard() {
   const [timeline, setTimeline] = useState(mockTimeline);
 
   const [tab, setTab] = useState('overview'); // overview, documents, upload, timeline, progress
+  const [showMCHATResponses, setShowMCHATResponses] = useState(false);
 
   // filters for documents
   const [typeFilter, setTypeFilter] = useState('all');
@@ -243,17 +245,20 @@ function DoctorDashboard() {
                 </div>
                 
                 {mchatScores[selectedChild?.id] && (
-                  <div className={`inline-flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold ${
-                    mchatScores[selectedChild?.id].riskLevel === 'Low Risk'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : mchatScores[selectedChild?.id].riskLevel === 'Medium Risk'
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-red-100 text-red-700'
-                  }`}>
+                  <button
+                    onClick={() => setShowMCHATResponses(true)}
+                    className={`inline-flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all hover:shadow-md cursor-pointer ${
+                      mchatScores[selectedChild?.id].riskLevel === 'Low Risk'
+                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                        : mchatScores[selectedChild?.id].riskLevel === 'Medium Risk'
+                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        : 'bg-red-100 text-red-700 hover:bg-red-200'
+                    }`}>
                     <span>M-CHAT Initial Screening:</span>
                     <span className="font-black">{mchatScores[selectedChild?.id].riskLevel}</span>
                     <span className="text-[10px]">(Score: {mchatScores[selectedChild?.id].score})</span>
-                  </div>
+                    <span className="ml-1">📋</span>
+                  </button>
                 )}
               </div>
 
@@ -434,6 +439,14 @@ function DoctorDashboard() {
           )}
         </main>
       </div>
+
+      {/* M-CHAT Responses Viewer */}
+      <MCHATResponsesViewer
+        isOpen={showMCHATResponses}
+        onClose={() => setShowMCHATResponses(false)}
+        child={selectedChild}
+        mchatData={mchatScores[selectedChild?.id]}
+      />
     </DashboardLayout>
   );
 }
