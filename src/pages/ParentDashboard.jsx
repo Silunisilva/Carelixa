@@ -6,8 +6,10 @@ import AddChildModal from '../components/AddChildModal';
 import ManageChildAssignments from '../components/ManageChildAssignments';
 import MCHATModal from '../components/MCHATModal';
 import { mockChildren, mockTimeline, mockAIPlans, mockDocuments, mockTeachers, mockDoctors } from '../data/mockData';
-import { getParentChildren, getUser, getMCHATScore } from '../services/dataService';
+import { getParentChildren, getUser, getMCHATScore, updateUser } from '../services/dataService';
 import ProgressTracker from '../components/ProgressTracker';
+import WeeklyParentBehaviorForm from '../components/WeeklyParentBehaviorForm';
+import WeeklyProgressStatus from '../components/WeeklyProgressStatus';
 
 function ParentDashboard() {
   const navigate = useNavigate();
@@ -25,13 +27,66 @@ function ParentDashboard() {
   const [careTeamDoctors, setCareTeamDoctors] = useState([]);
   const [careTeamTeachers, setCareTeamTeachers] = useState([]);
   const [mchatScores, setMchatScores] = useState({});
+  const [parentPhone, setParentPhone] = useState('');
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [savingPhone, setSavingPhone] = useState(false);
+
+  // Profile editing state
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileFormData, setProfileFormData] = useState({ name: '', age: '', gender: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // Fetch children from Firestore
   useEffect(() => {
     if (currentUser?.id) {
       loadChildren();
+      // Load parent phone number
+      getUser(currentUser.id).then(userData => {
+        if (userData?.phone) setParentPhone(userData.phone);
+      });
     }
   }, [currentUser?.id]);
+
+  const handleSavePhone = async () => {
+    if (!currentUser?.id) return;
+    setSavingPhone(true);
+    try {
+      await updateUser(currentUser.id, { phone: parentPhone });
+      setEditingPhone(false);
+    } catch (err) {
+      console.error('Error saving phone:', err);
+    } finally {
+      setSavingPhone(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!selectedChild) return;
+    setSavingProfile(true);
+    try {
+      // Import updateChild if not already imported at top
+      const updates = {
+        name: profileFormData.name,
+        age: parseInt(profileFormData.age, 10),
+        gender: profileFormData.gender
+      };
+      import('../services/dataService').then(({ updateChild }) => {
+        updateChild(selectedChild.id, updates).then(() => {
+          const updatedChild = { ...selectedChild, ...updates };
+          setSelectedChild(updatedChild);
+          setMyChildren(prev => prev.map(c => c.id === selectedChild.id ? updatedChild : c));
+          setEditingProfile(false);
+          setSavingProfile(false);
+        }).catch(err => {
+          console.error('Error saving profile:', err);
+          setSavingProfile(false);
+        });
+      });
+    } catch (err) {
+      console.error('Error saving profile:', err);
+      setSavingProfile(false);
+    }
+  };
 
   const loadChildren = async () => {
     try {
@@ -222,14 +277,6 @@ function ParentDashboard() {
   const childTimeline = mockTimeline.filter(event => event.childId === selectedChild?.id);
   const childPlan = mockAIPlans.find(plan => plan.childId === selectedChild?.id);
 
-  // Mock behavior state
-  const [behaviorLog, setBehaviorLog] = useState({
-    meltdowns: 0,
-    sleep: 3,
-    appetite: 3,
-    notes: ''
-  });
-
   // Mock report data
   const childReports = mockDocuments.filter(d => d.childId === selectedChild?.id);
 
@@ -401,6 +448,61 @@ function ParentDashboard() {
               <span className="ml-auto text-lg group-hover:translate-x-1 transition-transform">→</span>
             </button>
           </div>
+
+          {/* My Contact Info */}
+          <div className="glass-modern p-6 rounded-[2rem] border border-white/20 bg-gradient-to-br from-cyan-50/50 to-blue-50/50">
+            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm uppercase tracking-widest">
+              📞 My Contact Info
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Email</p>
+                <p className="text-sm font-bold text-gray-700 truncate">{currentUser?.email || 'Not set'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Phone Number</p>
+                {editingPhone ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      value={parentPhone}
+                      onChange={(e) => setParentPhone(e.target.value)}
+                      placeholder="+94 7X XXX XXXX"
+                      className="flex-1 px-3 py-2 rounded-lg border border-blue-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={handleSavePhone}
+                      disabled={savingPhone}
+                      className="px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 disabled:opacity-50"
+                    >
+                      {savingPhone ? '...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setEditingPhone(false)}
+                      className="px-2 py-2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-gray-700">
+                      {parentPhone || <span className="text-gray-400 italic">Not set</span>}
+                    </p>
+                    <button
+                      onClick={() => setEditingPhone(true)}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-800 underline"
+                    >
+                      {parentPhone ? 'Edit' : 'Add'}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-400 font-medium italic">
+                This info is shared with your child's assigned teacher and doctor.
+              </p>
+            </div>
+          </div>
         </aside>
 
         {/* Main Workspace */}
@@ -472,6 +574,7 @@ function ParentDashboard() {
               <div className="flex flex-wrap gap-2 p-1 bg-gray-100/30 rounded-2xl border border-white/50 backdrop-blur-md">
                 {[
                   { id: 'analysis', label: 'Analysis', icon: '👁️' },
+                  { id: 'profile', label: 'Profile', icon: '👤' },
                   { id: 'sync', label: 'Home Sync', icon: '🔄' },
                   { id: 'insights', label: 'AI Strategy', icon: '🤖' },
                   { id: 'vault', label: 'Reports', icon: '📊' }
@@ -493,6 +596,95 @@ function ParentDashboard() {
           </section>
 
           <div className="flex-1">
+            {tab === 'profile' && (
+              <div className="animate-fadeIn space-y-6">
+                <div className="glass-modern p-8 rounded-[2.5rem] border border-white/20 bg-white/40">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold text-gray-800">Child Profile Details</h3>
+                    {!editingProfile ? (
+                      <button 
+                        onClick={() => {
+                          setProfileFormData({ name: selectedChild.name, age: selectedChild.age, gender: selectedChild.gender });
+                          setEditingProfile(true);
+                        }}
+                        className="px-4 py-2 bg-blue-100 text-blue-700 rounded-xl font-bold text-sm hover:bg-blue-200 transition-colors"
+                      >
+                        Edit Profile
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setEditingProfile(false)}
+                          className="px-4 py-2 border border-gray-300 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={handleSaveProfile}
+                          disabled={savingProfile}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        >
+                          {savingProfile ? 'Saving...' : 'Save Changes'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Child's Name</label>
+                      {editingProfile ? (
+                        <input 
+                          type="text" 
+                          value={profileFormData.name} 
+                          onChange={e => setProfileFormData(prev => ({...prev, name: e.target.value}))}
+                          className="w-full px-4 py-2 rounded-lg bg-white/60 border border-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 font-medium shadow-inner"
+                        />
+                      ) : (
+                        <p className="text-gray-800 font-bold text-lg">{selectedChild.name}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Age</label>
+                      {editingProfile ? (
+                        <input 
+                          type="number" 
+                          value={profileFormData.age} 
+                          onChange={e => setProfileFormData(prev => ({...prev, age: e.target.value}))}
+                          className="w-full px-4 py-2 rounded-lg bg-white/60 border border-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 font-medium shadow-inner"
+                        />
+                      ) : (
+                        <p className="text-gray-800 font-bold text-lg">{selectedChild.age} yrs</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Gender</label>
+                      {editingProfile ? (
+                        <select 
+                          value={profileFormData.gender} 
+                          onChange={e => setProfileFormData(prev => ({...prev, gender: e.target.value}))}
+                          className="w-full px-4 py-2 rounded-lg bg-white/60 border border-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 font-medium shadow-inner"
+                        >
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                        </select>
+                      ) : (
+                        <p className="text-gray-800 font-bold text-lg capitalize">{selectedChild.gender}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Diagnosis (ASD Level)</label>
+                      <div className="w-full px-4 py-2 rounded-lg bg-gray-100/50 border border-gray-200 text-gray-500 font-medium flex justify-between items-center cursor-not-allowed">
+                        <span>{selectedChild.diagnosis}</span>
+                        <span className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-md font-bold uppercase tracking-wide">Doctor Managed</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1.5 italic leading-snug">Only an assigned doctor can modify the clinical diagnosis (ASD Level). To change this, consult with your care team.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {tab === 'analysis' && (
               <div className="animate-fadeIn space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
@@ -553,76 +745,16 @@ function ParentDashboard() {
               </div>
             )}
 
-            {tab === 'sync' && (
+            {tab === 'sync' && selectedChild && (
               <div className="animate-fadeIn space-y-8">
-                {/* Daily Behavior Log */}
-                <div className="glass-modern p-8 rounded-[3rem] border border-white/20 bg-white/40">
-                  <div className="flex items-center gap-4 mb-8">
-                    <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner">📝</div>
-                    <div>
-                      <h3 className="text-2xl font-black text-gray-800 tracking-tight">Daily Behavior Snapshot</h3>
-                      <p className="text-sm font-medium text-gray-500 italic">Quick home-based observations for your care team.</p>
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div>
-                      <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] block mb-3">Meltdowns</label>
-                      <div className="flex items-center gap-4">
-                        <button
-                          onClick={() => setBehaviorLog(prev => ({ ...prev, meltdowns: Math.max(0, prev.meltdowns - 1) }))}
-                          className="w-10 h-10 rounded-xl glass hover:bg-white border border-gray-100 shadow-sm font-bold active:scale-95 transition-all">-</button>
-                        <span className="text-2xl font-black text-gray-800 w-8 text-center">{behaviorLog.meltdowns}</span>
-                        <button
-                          onClick={() => setBehaviorLog(prev => ({ ...prev, meltdowns: prev.meltdowns + 1 }))}
-                          className="w-10 h-10 rounded-xl glass hover:bg-white border border-gray-100 shadow-sm font-bold active:scale-95 transition-all text-blue-600">+</button>
-                      </div>
-                    </div>
-
-                    {[
-                      { key: 'sleep', label: 'Sleep Quality', icon: '🌙' },
-                      { key: 'appetite', label: 'Appetite', icon: '🍎' }
-                    ].map(item => (
-                      <div key={item.key}>
-                        <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] block mb-3">{item.label}</label>
-                        <div className="flex gap-2">
-                          {[1, 2, 3, 4, 5].map(v => (
-                            <button
-                              key={v}
-                              onClick={() => setBehaviorLog(prev => ({ ...prev, [item.key]: v }))}
-                              className={`w-8 h-8 rounded-lg text-xs font-black transition-all ${behaviorLog[item.key] === v ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-400 hover:bg-blue-50'
-                                }`}
-                            >
-                              {v}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-
-                    <div className="lg:col-span-1">
-                      <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] block mb-3">Today's Highlight</label>
-                      <input
-                        type="text"
-                        placeholder="e.g., Used Eye Contact"
-                        className="w-full bg-white border-none rounded-xl py-2 px-4 text-xs font-bold focus:ring-2 focus:ring-blue-400 transition-all shadow-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mb-6">
-                    <label className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] block mb-3">Observation Notes</label>
-                    <textarea
-                      placeholder="Any new behaviors or specific victories today?"
-                      className="w-full bg-white border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-blue-400 transition-all shadow-sm min-h-[100px]"
-                    />
-                  </div>
-
-                  <button className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-xs px-10 py-4 rounded-2xl hover:shadow-[0_10px_25px_-5px_rgba(14,165,233,0.4)] transform active:scale-95 transition-all w-full md:w-auto uppercase tracking-widest">
-                    Sync Daily Data
-                  </button>
-                </div>
-
+                <WeeklyProgressStatus childId={selectedChild.id} role="parent" />
+                <WeeklyParentBehaviorForm 
+                  child={selectedChild} 
+                  parentId={currentUser?.id}
+                  onSubmit={() => {
+                    console.log('Weekly progress submitted successfully');
+                  }}
+                />
               </div>
             )}
 
@@ -744,7 +876,7 @@ function ParentDashboard() {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
+                <div className="w-16 h-16 ro unded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
                   <span className="text-4xl">👨‍👩‍👧</span>
                 </div>
                 <h3 className="text-xl font-bold text-gray-800 mb-2">No Children Added Yet</h3>

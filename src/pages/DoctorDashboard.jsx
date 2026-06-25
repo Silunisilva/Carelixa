@@ -2,8 +2,9 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import DashboardLayout from '../components/DashboardLayout';
 import { mockChildren, mockDocuments, mockTimeline, mockAIPlans } from '../data/mockData';
-import { getDoctorChildren, getMCHATScore } from '../services/dataService';
-import ProgressTracker from '../components/ProgressTracker';
+import { getDoctorChildren, getUser, updateChild } from '../services/dataService';
+import WeeklyProgressTracker from '../components/WeeklyProgressTracker';
+import WeeklyProgressStatus from '../components/WeeklyProgressStatus';
 import MCHATResponsesViewer from '../components/MCHATResponsesViewer';
 
 function randomHex(len = 16) {
@@ -11,6 +12,15 @@ function randomHex(len = 16) {
   let out = '';
   for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
+}
+
+// Get color for stored ASD level
+function getASDColor(levelStr) {
+  if (!levelStr) return 'bg-gray-100 text-gray-700';
+  const str = String(levelStr).toLowerCase();
+  if (str.includes('3')) return 'bg-red-100 text-red-700';
+  if (str.includes('2')) return 'bg-orange-100 text-orange-700';
+  return 'bg-blue-100 text-blue-700';
 }
 
 function DoctorDashboard() {
@@ -27,11 +37,34 @@ function DoctorDashboard() {
 
   const [tab, setTab] = useState('overview'); // overview, documents, upload, timeline, progress
   const [showMCHATResponses, setShowMCHATResponses] = useState(false);
+  const [parentInfo, setParentInfo] = useState(null);
+  const [teacherInfo, setTeacherInfo] = useState(null);
 
   // filters for documents
   const [typeFilter, setTypeFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  // Editing diagnosis state
+  const [editingDiagnosis, setEditingDiagnosis] = useState(false);
+  const [diagnosisInput, setDiagnosisInput] = useState('');
+  const [savingDiagnosis, setSavingDiagnosis] = useState(false);
+
+  const handleSaveDiagnosis = async () => {
+    if (!selectedChild || !diagnosisInput.trim()) return;
+    setSavingDiagnosis(true);
+    try {
+      await updateChild(selectedChild.id, { diagnosis: diagnosisInput.trim() });
+      const updatedChild = { ...selectedChild, diagnosis: diagnosisInput.trim() };
+      setSelectedChild(updatedChild);
+      setAssignedChildren(prev => prev.map(c => c.id === selectedChild.id ? updatedChild : c));
+      setEditingDiagnosis(false);
+    } catch (err) {
+      console.error('Error saving diagnosis:', err);
+    } finally {
+      setSavingDiagnosis(false);
+    }
+  };
 
   // Fetch children assigned to this doctor
   useEffect(() => {
@@ -47,28 +80,31 @@ function DoctorDashboard() {
       if (children.length > 0) {
         setAssignedChildren(children);
         setSelectedChild(children[0]);
-        
-        // Load M-CHAT scores for all children
+
+        // Build M-CHAT scores map directly from the already-fetched child documents.
+        // getDoctorChildren returns full Firestore docs, so no extra round-trips needed.
+        // We accept the score if mchatCompleted is true OR if mchatScore is present
+        // (handles older records where the flag may have been missing).
         const scores = {};
         for (const child of children) {
-          const mchatData = await getMCHATScore(child.id);
-          if (mchatData) {
-            scores[child.id] = mchatData;
+          if (child.mchatCompleted || child.mchatScore !== undefined) {
+            scores[child.id] = {
+              score: child.mchatScore ?? 0,
+              riskLevel: child.mchatRiskLevel ?? 'Low Risk',
+              completedAt: child.mchatCompletedAt ?? null,
+              answers: child.mchatAnswers ?? [],
+            };
           }
         }
         setMchatScores(scores);
       } else {
-        // Fallback to mock data if no children in database
-        const mockDoctorChildren = mockChildren.filter((c) => c.doctorId === 'doctor1');
-        setAssignedChildren(mockDoctorChildren);
-        setSelectedChild(mockDoctorChildren[0] || mockChildren[0]);
+        setAssignedChildren([]);
+        setSelectedChild(null);
       }
     } catch (err) {
       console.error('Error loading doctor children:', err);
-      // Fallback to mock data on error
-      const mockDoctorChildren = mockChildren.filter((c) => c.doctorId === 'doctor1');
-      setAssignedChildren(mockDoctorChildren);
-      setSelectedChild(mockDoctorChildren[0] || mockChildren[0]);
+      setAssignedChildren([]);
+      setSelectedChild(null);
     } finally {
       setLoading(false);
     }
@@ -82,6 +118,35 @@ function DoctorDashboard() {
   }, [documents, selectedChild, typeFilter, startDate, endDate]);
 
   const childTimeline = timeline.filter((t) => t.childId === selectedChild?.id);
+
+  // Fetch parent and teacher info when selected child changes
+  useEffect(() => {
+    const loadCareTeamInfo = async () => {
+      if (!selectedChild) {
+        setParentInfo(null);
+        setTeacherInfo(null);
+        return;
+      }
+      try {
+        if (selectedChild.parentId) {
+          const parent = await getUser(selectedChild.parentId);
+          setParentInfo(parent);
+        } else {
+          setParentInfo(null);
+        }
+        const primaryTeacherId = selectedChild.teacherId || (selectedChild.linkedTeachers?.[0]);
+        if (primaryTeacherId) {
+          const teacher = await getUser(primaryTeacherId);
+          setTeacherInfo(teacher);
+        } else {
+          setTeacherInfo(null);
+        }
+      } catch (err) {
+        console.error('Error loading care team info:', err);
+      }
+    };
+    loadCareTeamInfo();
+  }, [selectedChild?.id]);
 
   const handleFiles = useCallback((files) => {
     const now = new Date().toISOString().split('T')[0];
@@ -120,22 +185,6 @@ function DoctorDashboard() {
     return ['all', ...Array.from(set)];
   }, [documents]);
 
-  const saveProgress = useCallback((entry) => {
-    // optional handler for ProgressTracker to append to timeline
-    const now = new Date().toISOString().split('T')[0];
-    setTimeline((t) => [
-      ...t,
-      {
-        id: Math.random().toString(36).substr(2, 9),
-        type: 'progress_update',
-        title: 'Progress Updated',
-        description: `Progress updated for ${selectedChild.name} by ${entry.role}`,
-        date: now,
-        childId: selectedChild.id,
-      },
-    ]);
-  }, [selectedChild]);
-
   return (
     <DashboardLayout title="Clinical Intelligence Dashboard">
       <div className="flex flex-col xl:flex-row gap-8 pb-10">
@@ -164,34 +213,66 @@ function DoctorDashboard() {
             </div>
 
             <div className="max-h-[500px] overflow-y-auto px-4 pb-6 space-y-2 custom-scrollbar">
-              {assignedChildren.map((child) => (
-                <button
-                  key={child.id}
-                  onClick={() => setSelectedChild(child)}
-                  className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group relative overflow-hidden ${selectedChild?.id === child.id
-                    ? 'bg-white shadow-[0_10px_25px_-5px_rgba(147,51,234,0.15)] scale-[1.02]'
-                    : 'hover:bg-white/40 border border-transparent'
-                    }`}
-                >
-                  {selectedChild?.id === child.id && (
-                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-purple-500 to-pink-500"></div>
-                  )}
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner ${selectedChild?.id === child.id ? 'bg-purple-50' : 'bg-gray-50'
-                      }`}>
-                      {child.gender === 'female' ? '👧' : '👦'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className={`font-bold truncate ${selectedChild?.id === child.id ? 'text-gray-900' : 'text-gray-700'}`}>
-                        {child.name}
+              {assignedChildren.length > 0 ? (
+                assignedChildren.map((child) => (
+                  <button
+                    key={child.id}
+                    onClick={() => setSelectedChild(child)}
+                    className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group relative overflow-hidden ${selectedChild?.id === child.id
+                      ? 'bg-white shadow-[0_10px_25px_-5px_rgba(147,51,234,0.15)] scale-[1.02]'
+                      : 'hover:bg-white/40 border border-transparent'
+                      }`}
+                  >
+                    {selectedChild?.id === child.id && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-purple-500 to-pink-500"></div>
+                    )}
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner ${selectedChild?.id === child.id ? 'bg-purple-50' : 'bg-gray-50'
+                        }`}>
+                        {child.gender === 'female' ? '👧' : '👦'}
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5 font-medium">
-                        Patient ID: AC-{child.id.toUpperCase()}
+                      <div className="flex-1 min-w-0">
+                        <div className={`font-bold truncate ${selectedChild?.id === child.id ? 'text-gray-900' : 'text-gray-700'}`}>
+                          {child.name}
+                        </div>
+                        <div className="flex flex-col gap-1.5 mt-1">
+                          {child.diagnosis && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full self-start ${getASDColor(child.diagnosis)}`}>
+                              {child.diagnosis}
+                            </span>
+                          )}
+                          {mchatScores[child.id] ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {/* Risk level badge */}
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                mchatScores[child.id].riskLevel === 'Low Risk'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : mchatScores[child.id].riskLevel === 'Medium Risk'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-red-100 text-red-700'
+                              }`}>
+                                {mchatScores[child.id].riskLevel}
+                              </span>
+                              {/* Score */}
+                              <span className="text-[10px] text-gray-400 font-medium">
+                                Score: {mchatScores[child.id].score}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-gray-400 font-medium italic">
+                              No M-CHAT data yet
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500 text-sm font-medium italic">
+                  No patients registered
+                </div>
+              )}
             </div>
           </div>
 
@@ -222,7 +303,27 @@ function DoctorDashboard() {
 
         {/* Main Workspace */}
         <main className="flex-1 flex flex-col gap-8 min-w-0">
-          {selectedChild ? (
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mx-auto mb-4">
+                  <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-500 rounded-full animate-spin"></div>
+                </div>
+                <p className="text-gray-600 font-medium">Loading clinical workspace...</p>
+              </div>
+            </div>
+          ) : assignedChildren.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="glass-modern p-12 rounded-[2.5rem] border border-white/30 text-center max-w-lg shadow-lg">
+                <div className="text-6xl mb-6">🩺</div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-3">No Patients Assigned Yet</h3>
+                <p className="text-gray-500 leading-relaxed text-sm">
+                  Welcome to AutismCare! You currently have no patients assigned to your clinical workspace. 
+                  When parents link their children to your profile, their clinical details and M-CHAT evaluations will appear here.
+                </p>
+              </div>
+            </div>
+          ) : selectedChild ? (
             <>
           {/* Active Patient Hero Card */}
           <section className="glass-modern p-8 rounded-[2.5rem] border border-white/30 shadow-[0_15px_40px_-10px_rgba(0,0,0,0.05)] relative overflow-hidden">
@@ -294,18 +395,68 @@ function DoctorDashboard() {
                   <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-white/40">
                     <h3 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-6">Patient Biodata</h3>
                     <div className="grid grid-cols-2 gap-6">
-                      {[
-                        { label: 'Current Age', value: `${selectedChild.age} yrs` },
-                        { label: 'Primary Diagnosis', value: selectedChild.diagnosis },
-                        { label: 'Assigned Educator', value: selectedChild.teacherId },
-                        { label: 'Guardian Contact', value: selectedChild.parentId }
-                      ].map((item, i) => (
-                        <div key={i}>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">{item.label}</p>
-                          <p className="text-gray-800 font-bold">{item.value}</p>
-                        </div>
-                      ))}
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Current Age</p>
+                        <p className="text-gray-800 font-bold">{selectedChild.age} yrs</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Primary Diagnosis (ASD Level)</p>
+                        {!editingDiagnosis ? (
+                          <div className="flex items-center gap-2 group cursor-pointer" onClick={() => { setDiagnosisInput(selectedChild.diagnosis || ''); setEditingDiagnosis(true); }}>
+                            <p className="text-gray-800 font-bold">{selectedChild.diagnosis || 'Not set'}</p>
+                            <span className="text-xs text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity">✎ Edit</span>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 items-center">
+                            <input 
+                              type="text" 
+                              value={diagnosisInput}
+                              onChange={(e) => setDiagnosisInput(e.target.value)}
+                              placeholder="e.g., ASD Level 2"
+                              className="w-full text-sm px-2 py-1 border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 font-bold text-gray-800"
+                              autoFocus
+                            />
+                            <button 
+                              onClick={handleSaveDiagnosis}
+                              disabled={savingDiagnosis}
+                              className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded font-bold hover:bg-purple-200 disabled:opacity-50"
+                            >
+                              {savingDiagnosis ? '...' : 'Save'}
+                            </button>
+                            <button 
+                              onClick={() => setEditingDiagnosis(false)}
+                              className="text-xs text-gray-400 hover:text-gray-600 font-bold"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Assigned Educator</p>
+                        <p className="text-gray-800 font-bold">{teacherInfo?.name || 'Not assigned'}</p>
+                        {teacherInfo?.email && <p className="text-[10px] text-gray-400 mt-0.5">{teacherInfo.email}</p>}
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Guardian</p>
+                        <p className="text-gray-800 font-bold">{parentInfo?.name || 'Not assigned'}</p>
+                        {parentInfo?.email && <p className="text-[10px] text-gray-400 mt-0.5">{parentInfo.email}</p>}
+                      </div>
                     </div>
+                    {parentInfo && (
+                      <div className="mt-6 pt-4 border-t border-gray-100">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Guardian Contact</p>
+                        <div className="flex items-center gap-3 p-3 bg-blue-50/50 rounded-xl">
+                          <span className="text-lg">📞</span>
+                          <div>
+                            <p className="text-sm font-bold text-gray-800">
+                              {parentInfo.phone || <span className="text-gray-400 italic">Phone not provided</span>}
+                            </p>
+                            <p className="text-[10px] text-gray-400">{parentInfo.email}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-50/50 to-purple-50/50">
@@ -391,8 +542,23 @@ function DoctorDashboard() {
             )}
 
             {tab === 'progress' && (
-              <div className="animate-fadeIn">
-                <ProgressTracker child={selectedChild} role="doctor" onSave={saveProgress} />
+              <div className="animate-fadeIn space-y-8">
+                <WeeklyProgressStatus childId={selectedChild?.id} role="doctor" />
+                <WeeklyProgressTracker 
+                  child={selectedChild} 
+                  role="doctor"
+                  userId={currentUser?.id}
+                  customMetrics={[
+                    { key: 'communication', label: 'Communication in Class' },
+                    { key: 'instructions', label: 'Following Instructions' },
+                    { key: 'focus', label: 'Focus Duration' },
+                    { key: 'social', label: 'Social Interaction (Peers)' },
+                    { key: 'emotional', label: 'Emotional Regulation (Class)' }
+                  ]}
+                  onSubmit={() => {
+                    console.log('✅ Doctor weekly progress submitted');
+                  }}
+                />
               </div>
             )}
 
@@ -427,16 +593,7 @@ function DoctorDashboard() {
             )}
           </div>
             </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mx-auto mb-4">
-                  <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-500 rounded-full animate-spin"></div>
-                </div>
-                <p className="text-gray-600 font-medium">Loading patient profile...</p>
-              </div>
-            </div>
-          )}
+          ) : null}
         </main>
       </div>
 

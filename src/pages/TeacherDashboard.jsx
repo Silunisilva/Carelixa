@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import DashboardLayout from '../components/DashboardLayout';
 import { mockChildren, mockDocuments, mockAIRecommendations } from '../data/mockData';
-import { getTeacherChildren, getMCHATScore } from '../services/dataService';
-import ProgressTracker from '../components/ProgressTracker';
+import { getTeacherChildren, getMCHATScore, getUser } from '../services/dataService';
+import WeeklyProgressTracker from '../components/WeeklyProgressTracker';
+import WeeklyProgressStatus from '../components/WeeklyProgressStatus';
 import MCHATResponsesViewer from '../components/MCHATResponsesViewer';
 import { generateInsights } from '../utils/progressAi';
 
@@ -19,6 +20,7 @@ function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [mchatScores, setMchatScores] = useState({});
   const [showMCHATResponses, setShowMCHATResponses] = useState(false);
+  const [parentInfo, setParentInfo] = useState(null);
 
   // Fetch children assigned to this teacher
   useEffect(() => {
@@ -45,17 +47,13 @@ function TeacherDashboard() {
         }
         setMchatScores(scores);
       } else {
-        // Fallback to mock data if no children in database
-        const mockTeacherChildren = mockChildren.filter(c => c.teacherId === 'teacher1');
-        setAssignedChildren(mockTeacherChildren);
-        setSelectedChild(mockTeacherChildren[0] || mockChildren[0]);
+        setAssignedChildren([]);
+        setSelectedChild(null);
       }
     } catch (err) {
       console.error('Error loading teacher children:', err);
-      // Fallback to mock data on error
-      const mockTeacherChildren = mockChildren.filter(c => c.teacherId === 'teacher1');
-      setAssignedChildren(mockTeacherChildren);
-      setSelectedChild(mockTeacherChildren[0] || mockChildren[0]);
+      setAssignedChildren([]);
+      setSelectedChild(null);
     } finally {
       setLoading(false);
     }
@@ -71,6 +69,24 @@ function TeacherDashboard() {
       setAiInsights(null);
     }
   }, [selectedChild]);
+
+  // Fetch parent info when selected child changes
+  useEffect(() => {
+    const loadParentInfo = async () => {
+      if (!selectedChild?.parentId) {
+        setParentInfo(null);
+        return;
+      }
+      try {
+        const parent = await getUser(selectedChild.parentId);
+        setParentInfo(parent);
+      } catch (err) {
+        console.error('Error loading parent info:', err);
+        setParentInfo(null);
+      }
+    };
+    loadParentInfo();
+  }, [selectedChild?.id]);
 
   const handleUpload = (e) => {
     e.preventDefault();
@@ -136,37 +152,43 @@ function TeacherDashboard() {
             </div>
 
             <div className="max-h-[500px] overflow-y-auto px-4 pb-6 space-y-2 custom-scrollbar">
-              {assignedChildren.map((child) => (
-                <button
-                  key={child.id}
-                  onClick={() => setSelectedChild(child)}
-                  className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group relative overflow-hidden ${selectedChild?.id === child.id
-                    ? 'bg-white shadow-[0_10px_25px_-5px_rgba(244,63,94,0.15)] scale-[1.02]'
-                    : 'hover:bg-white/40 border border-transparent'
-                    }`}
-                >
-                  {selectedChild?.id === child.id && (
-                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-rose-500 to-pink-500"></div>
-                  )}
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner ${selectedChild?.id === child.id ? 'bg-rose-50' : 'bg-gray-50'
-                      }`}>
-                      {child.gender === 'female' ? '👧' : '👦'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className={`font-bold truncate ${selectedChild?.id === child.id ? 'text-gray-900' : 'text-gray-700'}`}>
-                        {child.name}
+              {assignedChildren.length > 0 ? (
+                assignedChildren.map((child) => (
+                  <button
+                    key={child.id}
+                    onClick={() => setSelectedChild(child)}
+                    className={`w-full text-left p-4 rounded-2xl transition-all duration-300 group relative overflow-hidden ${selectedChild?.id === child.id
+                      ? 'bg-white shadow-[0_10px_25px_-5px_rgba(244,63,94,0.15)] scale-[1.02]'
+                      : 'hover:bg-white/40 border border-transparent'
+                      }`}
+                  >
+                    {selectedChild?.id === child.id && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-rose-500 to-pink-500"></div>
+                    )}
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner ${selectedChild?.id === child.id ? 'bg-rose-50' : 'bg-gray-50'
+                        }`}>
+                        {child.gender === 'female' ? '👧' : '👦'}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-gray-400 font-bold uppercase">Grade 1-B</span>
-                        {child.id === 'child2' && ( // Mock attention alert
-                          <span className="flex h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className={`font-bold truncate ${selectedChild?.id === child.id ? 'text-gray-900' : 'text-gray-700'}`}>
+                          {child.name}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-gray-400 font-bold uppercase">Grade 1-B</span>
+                          {child.id === 'child2' && ( // Mock attention alert
+                            <span className="flex h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-500 text-sm font-medium italic">
+                  No students registered
+                </div>
+              )}
             </div>
           </div>
 
@@ -188,7 +210,27 @@ function TeacherDashboard() {
 
         {/* Main Classroom Workspace */}
         <main className="flex-1 flex flex-col gap-8 min-w-0">
-          {selectedChild ? (
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-4">
+                  <div className="w-12 h-12 border-4 border-rose-200 border-t-rose-500 rounded-full animate-spin"></div>
+                </div>
+                <p className="text-gray-600 font-medium">Loading classroom workspace...</p>
+              </div>
+            </div>
+          ) : assignedChildren.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="glass-modern p-12 rounded-[2.5rem] border border-white/30 text-center max-w-lg shadow-lg">
+                <div className="text-6xl mb-6">🏫</div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-3">No Students Assigned Yet</h3>
+                <p className="text-gray-500 leading-relaxed text-sm">
+                  Welcome to AutismCare! You currently have no students linked to your classroom. 
+                  When parents link their children to your educator profile, their academic tracking and IEP details will appear here.
+                </p>
+              </div>
+            </div>
+          ) : selectedChild ? (
             <>
           {/* Active Student Hero */}
           <section className="glass-modern p-8 rounded-[2.5rem] border border-white/30 shadow-[0_15px_40px_-10px_rgba(0,0,0,0.05)] relative overflow-hidden">
@@ -310,20 +352,54 @@ function TeacherDashboard() {
                     </div>
                   </div>
                 </div>
+
+                {/* Guardian Information Card */}
+                <div className="md:col-span-2 glass-modern p-8 rounded-3xl border border-white/20 bg-gradient-to-br from-blue-50/30 to-cyan-50/30">
+                  <h3 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <span>👨‍👩‍👧</span> Guardian Information
+                  </h3>
+                  {parentInfo ? (
+                    <div className="grid sm:grid-cols-3 gap-6">
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Guardian Name</p>
+                        <p className="font-bold text-gray-800">{parentInfo.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Email</p>
+                        <p className="font-bold text-gray-800 truncate">{parentInfo.email || 'Not provided'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Phone</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">📞</span>
+                          <p className="font-bold text-gray-800">
+                            {parentInfo.phone || <span className="text-gray-400 italic font-medium">Not provided</span>}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 italic font-medium">No guardian linked to this child.</p>
+                  )}
+                </div>
               </div>
             )}
 
             {tab === 'performance' && (
-              <div className="animate-fadeIn">
+              <div className="animate-fadeIn space-y-8">
+                <WeeklyProgressStatus childId={selectedChild?.id} role="teacher" />
                 <div className="bg-rose-50/30 p-4 rounded-2xl mb-6 border border-rose-100/50 text-rose-700 text-xs font-bold flex items-center gap-2">
                   <span>💡</span>
                   <span>Note: Ratings below represent School-Based Observations and classroom learning behaviors.</span>
                 </div>
-                <ProgressTracker
+                <WeeklyProgressTracker
                   child={selectedChild}
                   role="teacher"
+                  userId={currentUser?.id}
                   customMetrics={teacherCategories}
-                  onSave={() => alert('Classroom observations synchronized.')}
+                  onSubmit={() => {
+                    console.log('✅ Teacher weekly progress submitted');
+                  }}
                 />
               </div>
             )}
@@ -456,16 +532,7 @@ function TeacherDashboard() {
             )}
           </div>
             </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-4">
-                  <div className="w-12 h-12 border-4 border-rose-200 border-t-rose-500 rounded-full animate-spin"></div>
-                </div>
-                <p className="text-gray-600 font-medium">Loading student profile...</p>
-              </div>
-            </div>
-          )}
+          ) : null}
         </main>
       </div>
 
