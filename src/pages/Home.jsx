@@ -223,7 +223,7 @@ function Home() {
 
           <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             {['Features', 'How It Works', 'Testimonials'].map(l => (
-              <a key={l} href={`#${l.toLowerCase().replace(/ /g,'-')}`} className="nav-a">{l}</a>
+              <a key={l} href={`#${l.toLowerCase().replace(/ /g, '-')}`} className="nav-a">{l}</a>
             ))}
           </div>
 
@@ -309,10 +309,10 @@ function Home() {
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <div className="stat-bar reveal" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)' }} id="stats-grid">
             {[
-              { v: '1,000+', l: 'Children Supported',    ic: '👶', g: 'linear-gradient(135deg,#7c3aed,#db2777)' },
-              { v: '500+',   l: 'Healthcare Providers',   ic: '🏥', g: 'linear-gradient(135deg,#db2777,#f43f5e)' },
-              { v: '95%',    l: 'Satisfaction Rate',      ic: '⭐', g: 'linear-gradient(135deg,#2563eb,#06b6d4)' },
-              { v: '10K+',   l: 'AI Plans Generated',     ic: '🤖', g: 'linear-gradient(135deg,#16a34a,#059669)' },
+              { v: '1,000+', l: 'Children Supported', ic: '👶', g: 'linear-gradient(135deg,#7c3aed,#db2777)' },
+              { v: '500+', l: 'Healthcare Providers', ic: '🏥', g: 'linear-gradient(135deg,#db2777,#f43f5e)' },
+              { v: '95%', l: 'Satisfaction Rate', ic: '⭐', g: 'linear-gradient(135deg,#2563eb,#06b6d4)' },
+              { v: '10K+', l: 'AI Plans Generated', ic: '🤖', g: 'linear-gradient(135deg,#16a34a,#059669)' },
             ].map((s, i) => (
               <div key={i} style={{ padding: '36px 20px', textAlign: 'center', borderRight: i < 3 ? '1px solid rgba(124,58,237,0.07)' : 'none' }}>
                 <div style={{ fontSize: 22, marginBottom: 8 }}>{s.ic}</div>
@@ -334,23 +334,29 @@ function Home() {
               Built for <em className="g-pp">Everyone</em><br />in the Care Team
             </h2>
             <p style={{ fontFamily: 'var(--sans)', fontSize: 14.5, color: '#9ca3af', maxWidth: 400, margin: '0 auto', lineHeight: 1.75 }}>
-              One unified platform connecting every stakeholder in the autism care journey.
+              One unified platform connecting every stakeholder in the autism care journey.Specially in Education Support.
             </p>
           </div>
 
           <div className="desktop-grid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 22, alignItems: 'start' }}>
             {[
-              { e:'👨‍⚕️', title:'For Doctors',  tg:'linear-gradient(135deg,#7c3aed,#db2777)', bg:'rgba(124,58,237,0.07)', cc:'#7c3aed', bb:'rgba(124,58,237,0.07)', bc:'#7c3aed', bh:'rgba(124,58,237,0.14)', feat:false,
-                desc:'Manage patient records, track progress, and generate AI-powered weekly education plans based on clinical assessments.',
-                items:['Centralized patient records','AI-generated care plans','Progress tracking tools','Collaborate with educators'] },
-              { e:'👩‍🏫', title:'For Teachers', tg:'linear-gradient(135deg,#db2777,#f43f5e)', bg:'rgba(219,39,119,0.07)', cc:'#db2777', bb:'rgba(219,39,119,0.07)', bc:'#db2777', bh:'rgba(219,39,119,0.14)', feat:true,
-                desc:'Upload progress notes, get personalized activity recommendations, and implement data-driven teaching strategies.',
-                items:['Smart activity suggestions','Progress documentation','Communication tools','Resource library'] },
-              { e:'👨‍👩‍👧', title:'For Parents',  tg:'linear-gradient(135deg,#2563eb,#06b6d4)', bg:'rgba(37,99,235,0.07)', cc:'#2563eb', bb:'rgba(37,99,235,0.07)', bc:'#2563eb', bh:'rgba(37,99,235,0.14)', feat:false,
-                desc:"Stay connected with your child's care team, view real-time progress, and access personalized learning activities.",
-                items:['Real-time updates','Activity timeline','Direct messaging','At-home resources'] },
+              {
+                e: '👨‍⚕️', title: 'For Doctors', tg: 'linear-gradient(135deg,#7c3aed,#db2777)', bg: 'rgba(124,58,237,0.07)', cc: '#7c3aed', bb: 'rgba(124,58,237,0.07)', bc: '#7c3aed', bh: 'rgba(124,58,237,0.14)', feat: false,
+                desc: 'Manage patient records, track progress, and generate AI-powered weekly education plans based on clinical assessments.',
+                items: ['Centralized patient records', 'AI-generated care plans', 'Progress tracking tools', 'Collaborate with educators']
+              },
+              {
+                e: '👩‍🏫', title: 'For Teachers', tg: 'linear-gradient(135deg,#db2777,#f43f5e)', bg: 'rgba(219,39,119,0.07)', cc: '#db2777', bb: 'rgba(219,39,119,0.07)', bc: '#db2777', bh: 'rgba(219,39,119,0.14)', feat: true,
+                desc: 'Upload progress notes, get personalized activity recommendations, and implement data-driven teaching strategies.',
+                items: ['Smart activity suggestions', 'Progress documentation', 'Communication tools', 'Resource library']
+              },
+              {
+                e: '👨‍👩‍👧', title: 'For Parents', tg: 'linear-gradient(135deg,#2563eb,#06b6d4)', bg: 'rgba(37,99,235,0.07)', cc: '#2563eb', bb: 'rgba(37,99,235,0.07)', bc: '#2563eb', bh: 'rgba(37,99,235,0.14)', feat: false,
+                desc: "Stay connected with your child's care team, view real-time progress, and access personalized learning activities.",
+                items: ['Real-time updates', 'Activity timeline', 'Direct messaging', 'At-home resources']
+              },
             ].map((r, i) => (
-              <div key={i} className={`lux-card reveal d${i+1} ${r.feat ? 'role-feat' : ''}`} style={{ padding: '36px 30px' }}>
+              <div key={i} className={`lux-card reveal d${i + 1} ${r.feat ? 'role-feat' : ''}`} style={{ padding: '36px 30px' }}>
                 {r.feat && <div className="feat-pill">✦ Most Popular</div>}
                 <div className="icon-wrap" style={{ width: 58, height: 58, borderRadius: 20, background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 27, marginBottom: 20 }}>{r.e}</div>
                 <h3 style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 26, marginBottom: 10, background: r.tg, WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{r.title}</h3>
@@ -389,12 +395,12 @@ function Home() {
             <div className="hide-mobile" style={{ position: 'absolute', top: 32, left: 'calc(12.5% + 24px)', right: 'calc(12.5% + 24px)', height: 1, background: 'linear-gradient(90deg,rgba(124,58,237,0.2),rgba(219,39,119,0.2),rgba(249,115,22,0.2),rgba(234,179,8,0.2))', zIndex: 0 }} />
 
             {[
-              { n:'01', ic:'📝', title:'Create Account',  desc:'Sign up as doctor, teacher, or parent in minutes',        from:'#7c3aed', to:'#db2777' },
-              { n:'02', ic:'📤', title:'Add Information', desc:'Upload assessments and progress notes securely',           from:'#db2777', to:'#f43f5e' },
-              { n:'03', ic:'🤖', title:'AI Insights',     desc:'Receive personalised recommendations instantly',          from:'#f43f5e', to:'#f97316' },
-              { n:'04', ic:'📈', title:'Track Progress',  desc:'Monitor development and celebrate every win',             from:'#f97316', to:'#eab308' },
+              { n: '01', ic: '📝', title: 'Create Account', desc: 'Sign up as doctor, teacher, or parent in minutes', from: '#7c3aed', to: '#db2777' },
+              { n: '02', ic: '📤', title: 'Add Information', desc: 'Upload assessments and progress notes securely', from: '#db2777', to: '#f43f5e' },
+              { n: '03', ic: '🤖', title: 'AI Insights', desc: 'Receive personalised recommendations instantly', from: '#f43f5e', to: '#f97316' },
+              { n: '04', ic: '📈', title: 'Track Progress', desc: 'Monitor development and celebrate every win', from: '#f97316', to: '#eab308' },
             ].map((s, i) => (
-              <div key={i} className={`reveal d${i+1}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', position: 'relative', zIndex: 1 }}>
+              <div key={i} className={`reveal d${i + 1}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', position: 'relative', zIndex: 1 }}>
                 <div style={{ width: 64, height: 64, borderRadius: '50%', background: `linear-gradient(135deg,${s.from},${s.to})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, marginBottom: 18, boxShadow: '0 8px 28px rgba(124,58,237,0.22)', border: '3px solid rgba(255,255,255,0.92)', transition: 'transform 0.35s ease', cursor: 'default' }}
                   onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.12)'}
                   onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
@@ -427,12 +433,12 @@ function Home() {
 
           <div className="desktop-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
             {[
-              { ic:'🤖', title:'AI-Powered Planning',    color:'#7c3aed', bg:'rgba(124,58,237,0.08)', desc:"Our intelligent system analyzes assessments and progress to generate personalized weekly education plans tailored to each child's unique needs and learning style." },
-              { ic:'🤝', title:'Seamless Collaboration', color:'#db2777', bg:'rgba(219,39,119,0.08)', desc:'Connect doctors, teachers, and parents in one unified platform, ensuring everyone is aligned on care strategies and progress with real-time updates.' },
-              { ic:'📊', title:'Data-Driven Insights',   color:'#2563eb', bg:'rgba(37,99,235,0.08)',   desc:'Track development over time with visual progress reports and data analytics that highlight strengths and areas for growth with actionable insights.' },
-              { ic:'🔒', title:'Secure & Private',       color:'#16a34a', bg:'rgba(22,163,74,0.08)',   desc:'Built with blockchain technology to ensure data security, transparency, and compliance with HIPAA and healthcare privacy standards.' },
+              { ic: '🤖', title: 'AI-Powered Planning', color: '#7c3aed', bg: 'rgba(124,58,237,0.08)', desc: "Our intelligent system analyzes assessments and progress to generate personalized weekly education plans tailored to each child's unique needs and learning style." },
+              { ic: '🤝', title: 'Seamless Collaboration', color: '#db2777', bg: 'rgba(219,39,119,0.08)', desc: 'Connect doctors, teachers, and parents in one unified platform, ensuring everyone is aligned on care strategies and progress with real-time updates.' },
+              { ic: '📊', title: 'Data-Driven Insights', color: '#2563eb', bg: 'rgba(37,99,235,0.08)', desc: 'Track development over time with visual progress reports and data analytics that highlight strengths and areas for growth with actionable insights.' },
+              { ic: '🔒', title: 'Secure & Private', color: '#16a34a', bg: 'rgba(22,163,74,0.08)', desc: 'Built with blockchain technology to ensure data security, transparency, and compliance with HIPAA and healthcare privacy standards.' },
             ].map((f, i) => (
-              <div key={i} className={`lux-card reveal d${i+1}`} style={{ padding: '34px 30px', display: 'flex', gap: 22, alignItems: 'flex-start' }}>
+              <div key={i} className={`lux-card reveal d${i + 1}`} style={{ padding: '34px 30px', display: 'flex', gap: 22, alignItems: 'flex-start' }}>
                 <div className="icon-wrap" style={{ width: 58, height: 58, borderRadius: 18, background: f.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, flexShrink: 0 }}>{f.ic}</div>
                 <div>
                   <h4 style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 22, color: f.color, marginBottom: 10 }}>{f.title}</h4>
@@ -457,14 +463,14 @@ function Home() {
 
           <div className="desktop-grid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 22 }}>
             {[
-              { i:'S', name:'Dr. Sarah Miller',  role:'Pediatric Specialist',         quote:'"AutismCare has revolutionized how I collaborate with teachers and parents. The AI recommendations are spot-on and save me hours each week."', f:'#7c3aed', t:'#db2777' },
-              { i:'J', name:'Jennifer Lee',       role:'Special Education Teacher',    quote:'"The activity recommendations are incredibly helpful. I can see exactly what each child needs and track their progress in real-time."',    f:'#db2777', t:'#f43f5e' },
-              { i:'M', name:'Maria Johnson',      role:'Parent',                       quote:'"Finally, I can stay connected with Emma\'s care team and see her progress every day. It\'s given us so much peace of mind."',            f:'#2563eb', t:'#06b6d4' },
+              { i: 'S', name: 'Dr. Sarah Miller', role: 'Pediatric Specialist', quote: '"AutismCare has revolutionized how I collaborate with teachers and parents. The AI recommendations are spot-on and save me hours each week."', f: '#7c3aed', t: '#db2777' },
+              { i: 'J', name: 'Jennifer Lee', role: 'Special Education Teacher', quote: '"The activity recommendations are incredibly helpful. I can see exactly what each child needs and track their progress in real-time."', f: '#db2777', t: '#f43f5e' },
+              { i: 'M', name: 'Maria Johnson', role: 'Parent', quote: '"Finally, I can stay connected with Emma\'s care team and see her progress every day. It\'s given us so much peace of mind."', f: '#2563eb', t: '#06b6d4' },
             ].map((t, i) => (
-              <div key={i} className={`lux-card reveal d${i+1}`} style={{ padding: '34px 30px', position: 'relative', overflow: 'hidden' }}>
+              <div key={i} className={`lux-card reveal d${i + 1}`} style={{ padding: '34px 30px', position: 'relative', overflow: 'hidden' }}>
                 <div className="big-quote">"</div>
                 <div style={{ display: 'flex', gap: 2, marginBottom: 18 }}>
-                  {Array(5).fill(0).map((_,j) => <span key={j} style={{ color: '#fbbf24', fontSize: 13 }}>★</span>)}
+                  {Array(5).fill(0).map((_, j) => <span key={j} style={{ color: '#fbbf24', fontSize: 13 }}>★</span>)}
                 </div>
                 <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 16, color: '#374151', lineHeight: 1.78, marginBottom: 24 }}>{t.quote}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -519,16 +525,16 @@ function Home() {
                 Empowering early childhood autism education through AI-powered collaboration.
               </p>
               <div style={{ display: 'flex', gap: 8 }}>
-                {['𝕏','in','f'].map((s,i) => (
+                {['𝕏', 'in', 'f'].map((s, i) => (
                   <div key={i} className="soc-icon">{s}</div>
                 ))}
               </div>
             </div>
 
             {[
-              { title:'Product',   links:['Features','Pricing','Security','Roadmap'] },
-              { title:'Resources', links:['Documentation','Help Center','Blog','Community'] },
-              { title:'Company',   links:['About Us','Careers','Contact','Privacy'] },
+              { title: 'Product', links: ['Features', 'Pricing', 'Security', 'Roadmap'] },
+              { title: 'Resources', links: ['Documentation', 'Help Center', 'Blog', 'Community'] },
+              { title: 'Company', links: ['About Us', 'Careers', 'Contact', 'Privacy'] },
             ].map((col, i) => (
               <div key={i}>
                 <h4 style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 18, color: '#160d2e', marginBottom: 18 }}>{col.title}</h4>
@@ -549,7 +555,7 @@ function Home() {
           <div style={{ borderTop: '1px solid rgba(124,58,237,0.08)', paddingTop: 26, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <p style={{ fontFamily: 'var(--sans)', fontSize: 12, color: '#c4b5fd' }}>© 2026 AutismCare. All rights reserved.</p>
             <div style={{ display: 'flex', gap: 22 }}>
-              {['Terms','Privacy','Cookies'].map(l => (
+              {['Terms', 'Privacy', 'Cookies'].map(l => (
                 <a key={l} href="#" style={{ fontFamily: 'var(--sans)', fontSize: 12, color: '#c4b5fd', textDecoration: 'none', transition: 'color 0.2s' }}
                   onMouseEnter={e => e.currentTarget.style.color = '#7c3aed'}
                   onMouseLeave={e => e.currentTarget.style.color = '#c4b5fd'}
