@@ -8,7 +8,8 @@ import numpy as np
 import joblib
 import os
 from sklearn.impute import SimpleImputer
-
+import json
+from groq import Groq
 class PredictionService:
     def __init__(self, model_dir="models"):
         self.model_dir = model_dir
@@ -16,6 +17,11 @@ class PredictionService:
         self.regressor = None
         self.imputer = None
         self.feature_cols = None
+        
+        # Initialize Groq client
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.groq_client = Groq(api_key=self.groq_api_key) if self.groq_api_key else None
+        
         self.skill_areas = {
             "Communication": ["child_q1", "child_q2"],
             "Social": ["child_q3", "child_q4"],
@@ -112,6 +118,52 @@ class PredictionService:
         
         return df
 
+    def generate_strategies(self, weakest_area):
+        """Generate tailored strategies using Groq API."""
+        if not self.groq_client or not weakest_area or weakest_area == "Unknown":
+            return {
+                "teacher_strategies": ["Provide positive reinforcement.", "Break tasks into smaller steps.", "Maintain a consistent routine."],
+                "parent_guide": ["Create a calm environment.", "Encourage communication.", "Celebrate small wins."]
+            }
+            
+        prompt = f"""
+You are an expert child psychologist and special education teacher specializing in autism. 
+A child's weakest area of development has been identified as: {weakest_area}.
+
+Please provide:
+1. 3 actionable and specific teaching strategies/activities for the teacher to use in the classroom to improve this area.
+2. 3 practical focus points or activities for the parent to use at home to support the child in this area.
+
+Respond ONLY with a valid JSON object in the following format, with no markdown formatting or other text:
+{{
+  "teacher_strategies": ["Strategy 1", "Strategy 2", "Strategy 3"],
+  "parent_guide": ["Guide 1", "Guide 2", "Guide 3"]
+}}
+"""
+        try:
+            chat_completion = self.groq_client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                model="llama3-8b-8192",
+                temperature=0.7,
+                response_format={"type": "json_object"},
+            )
+            
+            response_text = chat_completion.choices[0].message.content
+            strategies = json.loads(response_text)
+            return strategies
+        except Exception as e:
+            print(f"❌ Error generating strategies with Groq: {e}")
+            return {
+                "teacher_strategies": ["Provide positive reinforcement.", "Break tasks into smaller steps.", "Maintain a consistent routine."],
+                "parent_guide": ["Create a calm environment.", "Encourage communication.", "Celebrate small wins."]
+            }
+
+
     def predict(self, progress_data):
         """
         Make prediction for a child based on progress data.
@@ -144,14 +196,21 @@ class PredictionService:
             avg_score = progress_data.get("weekly_overall_score", 3.0)
             is_at_risk = (improvement_pred == 0) or (avg_score < 2.5)
             
+            weakest_area = df["weakest_area"].values[0] if "weakest_area" in df.columns else "Unknown"
+            
+            # Generate personalized strategies
+            strategies = self.generate_strategies(weakest_area)
+            
             return {
                 "success": True,
                 "improvement": bool(improvement_pred),
                 "improvement_probability": float(improvement_prob),
                 "predicted_score_change": float(score_change),
                 "at_risk": is_at_risk,
-                "weakest_area": df["weakest_area"].values[0] if "weakest_area" in df.columns else "Unknown",
-                "confidence": "High" if improvement_prob > 0.7 or improvement_prob < 0.3 else "Medium"
+                "weakest_area": weakest_area,
+                "confidence": "High" if improvement_prob > 0.7 or improvement_prob < 0.3 else "Medium",
+                "teacher_strategies": strategies.get("teacher_strategies", []),
+                "parent_guide": strategies.get("parent_guide", [])
             }
         except Exception as e:
             print(f"❌ Prediction error: {e}")

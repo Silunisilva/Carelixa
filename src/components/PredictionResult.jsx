@@ -65,6 +65,8 @@ const PredictionResult = ({ progressData, onClose }) => {
     at_risk,
     weakest_area,
     confidence,
+    teacher_strategies,
+    parent_guide,
   } = prediction;
 
   const probabilityPercent = Math.round(improvement_probability * 100);
@@ -147,6 +149,8 @@ const PredictionResult = ({ progressData, onClose }) => {
             <p>This child is showing good progress. Continue current approach.</p>
           </div>
         )}
+
+
       </div>
 
       <div className="prediction-footer">
@@ -341,6 +345,8 @@ const PredictionResult = ({ progressData, onClose }) => {
           font-size: 13px;
           color: #333;
         }
+
+
 
         .prediction-footer {
           margin-top: 20px;

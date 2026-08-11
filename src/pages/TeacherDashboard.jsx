@@ -21,6 +21,7 @@ function TeacherDashboard() {
   const [mchatScores, setMchatScores] = useState({});
   const [showMCHATResponses, setShowMCHATResponses] = useState(false);
   const [parentInfo, setParentInfo] = useState(null);
+  const [currentPrediction, setCurrentPrediction] = useState(null);
 
   // Fetch children assigned to this teacher
   useEffect(() => {
@@ -87,6 +88,24 @@ function TeacherDashboard() {
     };
     loadParentInfo();
   }, [selectedChild?.id]);
+
+  // Fetch prediction when selected child changes
+  useEffect(() => {
+    const fetchPrediction = async () => {
+      if (selectedChild) {
+        try {
+          const { getWeeklyProgress } = await import('../services/dataService');
+          const data = await getWeeklyProgress(selectedChild.id);
+          setCurrentPrediction(data?.modelPrediction || null);
+        } catch (e) {
+          console.error('Error fetching prediction:', e);
+        }
+      } else {
+        setCurrentPrediction(null);
+      }
+    };
+    fetchPrediction();
+  }, [selectedChild]);
 
   const handleUpload = (e) => {
     e.preventDefault();
@@ -444,37 +463,46 @@ function TeacherDashboard() {
                 <div className="grid md:grid-cols-3 gap-6">
                   <div className="glass-modern p-6 rounded-3xl border border-white/40 bg-gradient-to-br from-indigo-50/50 to-rose-50/50">
                     <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2">Current Focus Domain</p>
-                    <p className="text-xl font-black text-gray-800">Sensory Integration</p>
+                    <p className="text-xl font-black text-gray-800">{currentPrediction?.weakest_area || 'Pending'}</p>
                   </div>
                   <div className="glass-modern p-6 rounded-3xl border border-white/40 bg-gradient-to-br from-rose-50/50 to-pink-50/50">
                     <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-2">Home vs School Efficacy</p>
-                    <p className="text-xl font-black text-gray-800">92% Correlation</p>
+                    <p className="text-xl font-black text-gray-800">{currentPrediction ? 'Analyzed' : 'Pending'}</p>
                   </div>
                   <div className="glass-modern p-6 rounded-3xl border border-white/40 bg-gradient-to-br from-purple-50/50 to-indigo-50/50">
                     <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-2">AI Strategy Confidence</p>
-                    <p className="text-xl font-black text-gray-800">Premium High</p>
+                    <p className="text-xl font-black text-gray-800">{currentPrediction?.confidence || 'Pending'}</p>
                   </div>
                 </div>
 
-                <div className="glass-modern p-10 rounded-[3rem] border border-white/30 bg-white/40">
+                <div className="glass-modern p-10 rounded-[3rem] border border-white/30 bg-white/40 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-rose-500/10 to-pink-500/10 rounded-full blur-3xl pointer-events-none"></div>
                   <div className="flex items-center gap-4 mb-8">
-                    <div className="w-12 h-12 bg-rose-500 text-white rounded-2xl flex items-center justify-center text-xl font-black shadow-lg shadow-rose-500/20">AI</div>
-                    <h3 className="text-2xl font-black text-gray-800 tracking-tight">Suggested Classroom Strategies</h3>
+                    <div className="w-16 h-16 bg-gradient-to-br from-rose-500 to-pink-600 text-white rounded-[1.25rem] flex items-center justify-center text-2xl font-black shadow-lg shadow-rose-500/30">AI</div>
+                    <div>
+                      <h3 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-gray-800 to-gray-600 tracking-tight leading-none mb-1">Suggested Classroom Strategies</h3>
+                      <p className="text-xs font-bold text-rose-500 uppercase tracking-[0.2em]">Tailored Protocol</p>
+                    </div>
                   </div>
-                  <div className="grid md:grid-cols-2 gap-8">
+                  <div className="grid md:grid-cols-2 gap-8 relative z-10">
                     <div className="space-y-6">
-                      {[
-                        { title: 'Visual Schedule Priming', detail: 'Preview upcoming transitions using icons 5 minutes prior.' },
-                        { title: 'Choice Reinforcement', detail: 'Offer choice between two valid classroom tasks to promote agency.' }
-                      ].map((strat, i) => (
-                        <div key={i} className="flex gap-4">
-                          <span className="text-rose-500 font-black">0{i + 1}.</span>
-                          <div>
-                            <p className="font-bold text-gray-800 uppercase tracking-tighter text-sm mb-1">{strat.title}</p>
-                            <p className="text-sm text-gray-600 font-medium leading-relaxed">{strat.detail}</p>
+                      {currentPrediction?.teacher_strategies?.length > 0 ? (
+                        currentPrediction.teacher_strategies.map((strat, i) => (
+                          <div key={i} className="flex gap-5 p-6 rounded-[1.5rem] bg-white/90 backdrop-blur-md border border-rose-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(244,63,94,0.15)] hover:-translate-y-1 transition-all duration-300 group relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-rose-500 to-pink-500"></div>
+                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-500 to-pink-600 text-white flex-shrink-0 flex items-center justify-center font-black text-xl shadow-lg shadow-rose-500/30 group-hover:scale-110 group-hover:-rotate-3 transition-transform duration-300">
+                              {i + 1}
+                            </div>
+                            <div className="flex-1 flex items-center">
+                              <p className="font-bold text-gray-800 text-base leading-relaxed">{strat}</p>
+                            </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center bg-gray-50 rounded-3xl border border-dashed border-gray-300">
+                          <p className="text-sm text-gray-500 italic font-medium">No teacher strategies available yet. Please complete this week's progress trackers.</p>
                         </div>
-                      ))}
+                      )}
                     </div>
                     <div className="bg-rose-50/40 p-6 rounded-3xl border border-rose-100 flex flex-col justify-center">
                       <p className="text-[11px] font-black text-rose-400 uppercase tracking-widest mb-4 italic">Comparison Insight</p>

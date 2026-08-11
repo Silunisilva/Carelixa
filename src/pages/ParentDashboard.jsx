@@ -35,6 +35,8 @@ function ParentDashboard() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileFormData, setProfileFormData] = useState({ name: '', age: '', gender: '' });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [currentPrediction, setCurrentPrediction] = useState(null);
+  const [completedTasks, setCompletedTasks] = useState([]);
 
   // Fetch children from Firestore
   useEffect(() => {
@@ -250,6 +252,35 @@ function ParentDashboard() {
 
     loadCareTeam();
   }, [selectedChild?.id]);
+
+  // Fetch prediction when selected child changes
+  useEffect(() => {
+    const fetchPrediction = async () => {
+      if (selectedChild) {
+        try {
+          const { getWeeklyProgress } = await import('../services/dataService');
+          const data = await getWeeklyProgress(selectedChild.id);
+          setCurrentPrediction(data?.modelPrediction || null);
+          setCompletedTasks([]); // Reset checklist on new child
+        } catch (e) {
+          console.error('Error fetching prediction:', e);
+        }
+      } else {
+        setCurrentPrediction(null);
+        setCompletedTasks([]);
+      }
+    };
+    fetchPrediction();
+  }, [selectedChild]);
+
+  const toggleTask = (index) => {
+    setCompletedTasks(prev => {
+      if (prev.includes(index)) {
+        return prev.filter(i => i !== index);
+      }
+      return [...prev, index];
+    });
+  };
 
   // Get care team members for selected child (using state instead of mocking)
   const doctors = careTeamDoctors;
@@ -770,7 +801,9 @@ function ParentDashboard() {
                       <div className="w-14 h-14 bg-blue-600 text-white rounded-3xl flex items-center justify-center text-2xl font-black shadow-xl shadow-blue-500/20">AI</div>
                       <div>
                         <h3 className="text-3xl font-black text-gray-800 tracking-tight leading-none">Intelligence Advisory</h3>
-                        <p className="text-sm font-bold text-blue-500 uppercase tracking-widest mt-1">Status: High Precision Strategy</p>
+                        <p className="text-sm font-bold text-blue-500 uppercase tracking-widest mt-1">
+                          Status: {currentPrediction ? 'High Precision Strategy' : 'Awaiting Weekly Data'}
+                        </p>
                       </div>
                     </div>
 
@@ -778,51 +811,72 @@ function ParentDashboard() {
                       <div>
                         <h4 className="text-xs font-black text-gray-400 uppercase tracking-[0.3em] mb-4">Focus Domain Analysis</h4>
                         <div className="p-6 bg-white/60 rounded-[2rem] border border-white mb-8">
-                          <p className="text-2xl font-black text-gray-800 mb-2">Communication Efficacy</p>
+                          <p className="text-2xl font-black text-gray-800 mb-2">
+                            {currentPrediction?.weakest_area || 'Pending Analysis'}
+                          </p>
                           <p className="text-sm text-gray-600 font-medium leading-relaxed italic border-l-4 border-blue-400 pl-4">
-                            "Reason: Based on therapist reports and your tracking data, Emma shows increased attempts at vocalizing choice but requires prompt reinforcement."
+                            "Reason: This area has been identified by the AI model based on the latest progress reports."
                           </p>
                         </div>
 
-                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-[0.3em] mb-4 text-center border-b pb-4">Home Enrichment Protocol</h4>
-                        <div className="space-y-4">
-                          {[
-                            { title: 'Choice Reinforcement', desc: 'Present two preferred fruits during snack; wait 5 seconds for vocalization before providing choice.' },
-                            { title: 'Visual Prompt Fading', desc: 'Slowly distance the physical icons while verbalizing the activity name.' }
-                          ].map((item, i) => (
-                            <div key={i} className="flex gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex-shrink-0 flex items-center justify-center font-black">0{i + 1}</div>
-                              <div>
-                                <p className="font-bold text-gray-800 uppercase tracking-tighter text-sm mb-1">{item.title}</p>
-                                <p className="text-xs text-gray-500 font-medium leading-relaxed">{item.desc}</p>
+                        <div className="flex items-center justify-center gap-3 mb-6 pb-4 border-b border-gray-100">
+                          <span className="text-2xl animate-pulse">🌟</span>
+                          <h4 className="text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 uppercase tracking-[0.2em]">
+                            Tailored Home Enrichment Protocol
+                          </h4>
+                          <span className="text-2xl animate-pulse">🌟</span>
+                        </div>
+                        
+                        <div className="space-y-5 relative">
+                          <div className="absolute -inset-4 bg-gradient-to-b from-blue-50/50 to-indigo-50/50 rounded-3xl -z-10 filter blur-xl opacity-70"></div>
+                          {currentPrediction?.parent_guide?.length > 0 ? (
+                            currentPrediction.parent_guide.map((item, i) => (
+                              <div key={i} className="flex gap-5 p-6 rounded-[1.5rem] bg-white/80 backdrop-blur-md border border-blue-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(59,130,246,0.15)] hover:-translate-y-1 transition-all duration-300 group relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-blue-500 to-indigo-500"></div>
+                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex-shrink-0 flex items-center justify-center font-black text-xl shadow-lg shadow-blue-500/30 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300">
+                                  {i + 1}
+                                </div>
+                                <div className="flex-1 flex items-center">
+                                  <p className="font-bold text-gray-800 text-base leading-relaxed">{item}</p>
+                                </div>
+                                <div className="absolute top-2 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="text-2xl">✨</span>
+                                </div>
                               </div>
+                            ))
+                          ) : (
+                            <div className="p-8 text-center bg-gray-50 rounded-3xl border border-dashed border-gray-300">
+                              <p className="text-sm text-gray-500 italic font-medium">No parent guide available yet. Please complete this week's progress trackers.</p>
                             </div>
-                          ))}
+                          )}
                         </div>
                       </div>
 
                       <div className="bg-blue-900/5 rounded-[2.5rem] p-8 border border-blue-100 flex flex-col">
                         <div className="flex items-center justify-between mb-8">
                           <h4 className="text-xs font-black text-blue-600 uppercase tracking-[0.3em]">Weekly Parental Checklog</h4>
-                          <span className="text-[10px] font-black bg-blue-600 text-white px-3 py-1 rounded-full">3 of 5 Done</span>
+                          <span className="text-[10px] font-black bg-blue-600 text-white px-3 py-1 rounded-full">
+                            {completedTasks.length} of {currentPrediction?.parent_guide?.length || 0} Done
+                          </span>
                         </div>
                         <div className="space-y-4 flex-1">
-                          {[
-                            { label: 'Morning transition routine', active: true },
-                            { label: 'Eye contact reinforcement during dinner', active: true },
-                            { label: 'Shared reading session (15 mins)', active: true },
-                            { label: 'Social greeting practice with neighbors', active: false },
-                            { label: 'Independent play (10 min quiet block)', active: false }
-                          ].map((item, i) => (
-                            <div key={i} className="flex items-center gap-4 bg-white/40 p-4 rounded-2xl group cursor-pointer hover:bg-white transition-all">
-                              <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${item.active ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200'}`}>
-                                {item.active && <span className="text-[10px]">✓</span>}
-                              </div>
-                              <span className={`text-sm font-bold ${item.active ? 'text-gray-800' : 'text-gray-400 group-hover:text-gray-600'}`}>
-                                {item.label}
-                              </span>
-                            </div>
-                          ))}
+                          {currentPrediction?.parent_guide?.length > 0 ? (
+                            currentPrediction.parent_guide.map((item, i) => {
+                              const active = completedTasks.includes(i);
+                              return (
+                                <div key={i} onClick={() => toggleTask(i)} className="flex items-center gap-4 bg-white/40 p-4 rounded-2xl group cursor-pointer hover:bg-white transition-all">
+                                  <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${active ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200'}`}>
+                                    {active && <span className="text-[10px]">✓</span>}
+                                  </div>
+                                  <span className={`text-sm font-bold ${active ? 'text-gray-800' : 'text-gray-400 group-hover:text-gray-600'}`}>
+                                    {item}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="text-sm text-gray-500 italic text-center mt-10">Checklist pending strategies</p>
+                          )}
                         </div>
                         <p className="text-[10px] text-center text-gray-400 font-bold uppercase tracking-widest mt-8">Strategies Refresh every Monday at 8:00 AM</p>
                       </div>
