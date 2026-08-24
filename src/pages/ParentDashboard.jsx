@@ -10,14 +10,15 @@ import { getParentChildren, getUser, getMCHATScore, updateUser } from '../servic
 import ProgressTracker from '../components/ProgressTracker';
 import WeeklyParentBehaviorForm from '../components/WeeklyParentBehaviorForm';
 import WeeklyProgressStatus from '../components/WeeklyProgressStatus';
+import { syncExistingLinksToBlockchain } from '../services/blockchainService';
 
 function ParentDashboard() {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, updateUserProfile } = useAuth();
   
   const [myChildren, setMyChildren] = useState([]);
   const [selectedChild, setSelectedChild] = useState(null);
-  const [tab, setTab] = useState('analysis'); // analysis, sync, insights, vault
+  const [tab, setTab] = useState('sync'); // sync, insights, profile
   const [loading, setLoading] = useState(true);
   const [showAddChild, setShowAddChild] = useState(false);
   const [showManageAssignments, setShowManageAssignments] = useState(false);
@@ -27,9 +28,9 @@ function ParentDashboard() {
   const [careTeamDoctors, setCareTeamDoctors] = useState([]);
   const [careTeamTeachers, setCareTeamTeachers] = useState([]);
   const [mchatScores, setMchatScores] = useState({});
-  const [parentPhone, setParentPhone] = useState('');
-  const [editingPhone, setEditingPhone] = useState(false);
-  const [savingPhone, setSavingPhone] = useState(false);
+  const [parentContact, setParentContact] = useState({ name: '', email: '', phone: '' });
+  const [editingContact, setEditingContact] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
 
   // Profile editing state
   const [editingProfile, setEditingProfile] = useState(false);
@@ -42,23 +43,44 @@ function ParentDashboard() {
   useEffect(() => {
     if (currentUser?.id) {
       loadChildren();
-      // Load parent phone number
+      // Load parent contact info
       getUser(currentUser.id).then(userData => {
-        if (userData?.phone) setParentPhone(userData.phone);
+        if (userData) {
+          setParentContact({
+            name: userData.name || userData.firstName || '',
+            email: userData.email || currentUser.email || '',
+            phone: userData.phone || ''
+          });
+        } else {
+          setParentContact({
+            name: '',
+            email: currentUser.email || '',
+            phone: ''
+          });
+        }
       });
     }
   }, [currentUser?.id]);
 
-  const handleSavePhone = async () => {
+  const handleSaveContact = async () => {
     if (!currentUser?.id) return;
-    setSavingPhone(true);
+    setSavingContact(true);
     try {
-      await updateUser(currentUser.id, { phone: parentPhone });
-      setEditingPhone(false);
+      await updateUser(currentUser.id, { 
+        name: parentContact.name,
+        email: parentContact.email,
+        phone: parentContact.phone 
+      });
+      // Sync local context so the header and other components update immediately
+      updateUserProfile({ 
+        name: parentContact.name, 
+        email: parentContact.email 
+      });
+      setEditingContact(false);
     } catch (err) {
-      console.error('Error saving phone:', err);
+      console.error('Error saving contact info:', err);
     } finally {
-      setSavingPhone(false);
+      setSavingContact(false);
     }
   };
 
@@ -116,6 +138,14 @@ function ParentDashboard() {
           linkedTeachers,
         };
       });
+      
+      // Auto-sync existing links to local blockchain
+      const allLinks = [];
+      children.forEach(c => {
+        c.linkedDoctors.forEach(d => allLinks.push({ childId: c.id, providerId: d }));
+        c.linkedTeachers.forEach(t => allLinks.push({ childId: c.id, providerId: t }));
+      });
+      syncExistingLinksToBlockchain(allLinks);
       
       setMyChildren(children);
       // Initialize doctor visit dates
@@ -486,54 +516,82 @@ function ParentDashboard() {
               📞 My Contact Info
             </h3>
             <div className="space-y-3">
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Email</p>
-                <p className="text-sm font-bold text-gray-700 truncate">{currentUser?.email || 'Not set'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Phone Number</p>
-                {editingPhone ? (
-                  <div className="flex gap-2">
+              {editingContact ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Guardian Name</label>
+                    <input
+                      type="text"
+                      value={parentContact.name}
+                      onChange={(e) => setParentContact(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="e.g. Jane Doe"
+                      className="w-full px-3 py-2 rounded-lg border border-blue-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Contact Email</label>
+                    <input
+                      type="email"
+                      value={parentContact.email}
+                      onChange={(e) => setParentContact(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="jane@example.com"
+                      className="w-full px-3 py-2 rounded-lg border border-blue-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Phone Number</label>
                     <input
                       type="tel"
-                      value={parentPhone}
-                      onChange={(e) => setParentPhone(e.target.value)}
+                      value={parentContact.phone}
+                      onChange={(e) => setParentContact(prev => ({ ...prev, phone: e.target.value }))}
                       placeholder="+94 7X XXX XXXX"
-                      className="flex-1 px-3 py-2 rounded-lg border border-blue-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 rounded-lg border border-blue-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                  </div>
+                  <div className="flex gap-2 pt-2">
                     <button
-                      onClick={handleSavePhone}
-                      disabled={savingPhone}
-                      className="px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 disabled:opacity-50"
+                      onClick={handleSaveContact}
+                      disabled={savingContact}
+                      className="flex-1 px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 disabled:opacity-50"
                     >
-                      {savingPhone ? '...' : 'Save'}
+                      {savingContact ? 'Saving...' : 'Save Profile'}
                     </button>
                     <button
-                      onClick={() => setEditingPhone(false)}
-                      className="px-2 py-2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                      onClick={() => setEditingContact(false)}
+                      className="px-3 py-2 bg-gray-200 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-300"
                     >
-                      ✕
+                      Cancel
                     </button>
                   </div>
-                ) : (
+                </div>
+              ) : (
+                <>
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-gray-700">
-                      {parentPhone || <span className="text-gray-400 italic">Not set</span>}
-                    </p>
-                    <button
-                      onClick={() => setEditingPhone(true)}
-                      className="text-xs font-bold text-blue-600 hover:text-blue-800 underline"
-                    >
-                      {parentPhone ? 'Edit' : 'Add'}
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Guardian Name</p>
+                      <p className="text-sm font-bold text-gray-700 truncate">{parentContact.name || <span className="text-gray-400 italic">Not set</span>}</p>
+                    </div>
+                    <button onClick={() => setEditingContact(true)} className="text-xs font-bold text-blue-600 hover:text-blue-800 underline">
+                      Edit
                     </button>
                   </div>
-                )}
-              </div>
-              <p className="text-[10px] text-gray-400 font-medium italic">
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Contact Email</p>
+                    <p className="text-sm font-bold text-gray-700 truncate">{parentContact.email || <span className="text-gray-400 italic">Not set</span>}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Phone Number</p>
+                    <p className="text-sm font-bold text-gray-700">
+                      {parentContact.phone || <span className="text-gray-400 italic">Not set</span>}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+              <p className="text-[10px] text-gray-400 font-medium italic mt-4">
                 This info is shared with your child's assigned teacher and doctor.
               </p>
             </div>
-          </div>
         </aside>
 
         {/* Main Workspace */}
@@ -604,11 +662,9 @@ function ParentDashboard() {
 
               <div className="flex flex-wrap gap-2 p-1 bg-gray-100/30 rounded-2xl border border-white/50 backdrop-blur-md">
                 {[
-                  { id: 'analysis', label: 'Analysis', icon: '👁️' },
                   { id: 'profile', label: 'Profile', icon: '👤' },
                   { id: 'sync', label: 'Home Sync', icon: '🔄' },
-                  { id: 'insights', label: 'AI Strategy', icon: '🤖' },
-                  { id: 'vault', label: 'Reports', icon: '📊' }
+                  { id: 'insights', label: 'AI Strategy', icon: '🤖' }
                 ].map((t) => (
                   <button
                     key={t.id}
@@ -716,65 +772,7 @@ function ParentDashboard() {
               </div>
             )}
 
-            {tab === 'analysis' && (
-              <div className="animate-fadeIn space-y-6">
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="glass-modern p-10 rounded-[2.5rem] bg-gradient-to-br from-blue-500 to-indigo-600 text-black shadow-xl shadow-blue-500/20">
-                    <h3 className="text-xs font-black uppercase tracking-[0.3em] opacity-70 mb-6">Current Focus Area</h3>
-                    <p className="text-4xl font-black mb-4">Communication & Social Scripts</p>
-                    <p className=" leading-relaxed font-medium text-black italic">
-                      "Emma is responding exceptionally well to visual cue cards. We are currently bridging from single words to 2-word requests."
-                    </p>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-white/40">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center">Engagement</p>
-                      <p className="text-3xl font-black text-gray-800 text-center">84%</p>
-                      <div className="mt-3 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500 w-[84%]"></div>
-                      </div>
-                    </div>
-                    <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-white/40">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center">Independence</p>
-                      <p className="text-3xl font-black text-gray-800 text-center">62%</p>
-                      <div className="mt-3 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 w-[62%]"></div>
-                      </div>
-                    </div>
-                    <div className="col-span-2 glass-modern p-6 rounded-3xl border border-white/20 bg-emerald-50/50">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Weekly Status</p>
-                          <p className="font-bold text-gray-800">Excellent - No Major Regression</p>
-                        </div>
-                        <span className="text-2xl">✨</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="glass-modern p-8 rounded-[2.5rem] border border-white/20">
-                  <h3 className="text-xl font-bold text-gray-800 mb-6">Activity Narrative</h3>
-                  <div className="space-y-4">
-                    {childTimeline.slice(0, 3).map((ev) => (
-                      <div key={ev.id} className="flex items-start gap-4 p-4 bg-white/40 rounded-2xl hover:bg-white transition-all shadow-sm">
-                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center text-xl shadow-inner">
-                          {ev.type === 'ai_plan' ? '🤖' : '📄'}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-start">
-                            <p className="font-bold text-gray-800">{ev.title}</p>
-                            <span className="text-[10px] font-black text-black uppercase">{ev.date}</span>
-                          </div>
-                          <p className="text-sm text-gray-500 font-medium mt-1">{ev.description}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {tab === 'sync' && selectedChild && (
               <div className="animate-fadeIn space-y-8">
@@ -886,45 +884,7 @@ function ParentDashboard() {
               </div>
             )}
 
-            {tab === 'vault' && (
-              <div className="animate-fadeIn space-y-6">
-                <div className="flex items-center justify-between px-2">
-                  <h3 className="text-2xl font-black text-gray-800 tracking-tight">Clinical Vault</h3>
-                  <div className="flex gap-2">
-                    <button className="px-5 py-2 glass rounded-xl text-xs font-black uppercase text-gray-500 hover:text-blue-600 transition-all">Download All</button>
-                  </div>
-                </div>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {childReports.map((doc) => (
-                    <div key={doc.id} className="glass-modern bg-white/60 p-6 rounded-[2rem] border border-white hover:bg-white transition-all group shadow-sm hover:shadow-xl relative overflow-hidden">
-                      <div className="absolute top-0 right-0 py-1.5 px-4 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-widest rounded-bl-2xl flex items-center gap-1 border-l border-b border-emerald-100/50">
-                        Verified <span className="text-[11px]">✓</span>
-                      </div>
-
-                      <div className="w-14 h-14 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center text-2xl mb-6 shadow-inner group-hover:scale-110 transition-transform duration-500">
-                        📄
-                      </div>
-
-                      <h4 className="text-lg font-black text-gray-800 leading-tight mb-1 truncate pr-16">{doc.title}</h4>
-                      <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-6">{doc.type}</p>
-
-                      <div className="pt-6 border-t border-gray-100 flex items-center justify-between mt-auto">
-                        <span className="text-[11px] font-black text-gray-300 tracking-tighter">{doc.uploadedDate}</span>
-                        <button className="text-[10px] font-black text-blue-600 hover:text-blue-800 underline underline-offset-4 decoration-2">ACCESS PDF</button>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Mock Monthly Report Placeholder */}
-                  <div className="glass-modern bg-gradient-to-br from-indigo-50 to-blue-50 p-6 rounded-[2rem] border-2 border-dashed border-blue-200 flex flex-col items-center justify-center text-center opacity-70 group hover:opacity-100 cursor-pointer transition-opacity">
-                    <div className="text-4xl mb-4 grayscale group-hover:grayscale-0 transition-all">📈</div>
-                    <p className="text-sm font-black text-gray-800 uppercase tracking-tighter">August Executive Report</p>
-                    <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">Generating Final Assessment...</p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
             </>
           ) : (
@@ -956,10 +916,11 @@ function ParentDashboard() {
       />
       
       {selectedChild && (
-        <ManageChildAssignments
-          isOpen={showManageAssignments}
-          onClose={handleManageAssignmentsClose}
+        <ManageChildAssignments 
+          isOpen={showManageAssignments} 
+          onClose={() => setShowManageAssignments(false)} 
           child={selectedChild}
+          onUpdate={loadChildren}
         />
       )}
 

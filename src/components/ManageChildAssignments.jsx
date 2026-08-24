@@ -7,8 +7,9 @@ import {
   removeTeacherFromChild,
   removeDoctorFromChild,
 } from '../services/dataService';
+import { isBlockchainEnabled, grantConsentOnChain } from '../services/blockchainService';
 
-function ManageChildAssignments({ isOpen, onClose, child }) {
+function ManageChildAssignments({ isOpen, onClose, child, onUpdate }) {
   const [teachers, setTeachers] = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [selectedTeachers, setSelectedTeachers] = useState([]);
@@ -16,6 +17,7 @@ function ManageChildAssignments({ isOpen, onClose, child }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [isBlockchainConfirming, setIsBlockchainConfirming] = useState(false);
 
   useEffect(() => {
     if (isOpen && child) {
@@ -45,15 +47,29 @@ function ManageChildAssignments({ isOpen, onClose, child }) {
       if (selectedTeachers.includes(teacherId)) {
         await removeTeacherFromChild(child.id, teacherId);
         setSelectedTeachers(prev => prev.filter(id => id !== teacherId));
+        setMessage('Assignment removed successfully.');
+        setTimeout(() => setMessage(''), 3000);
       } else {
+        if (isBlockchainEnabled()) {
+          setIsBlockchainConfirming(true);
+          const hash = await grantConsentOnChain(child.id, teacherId);
+          setIsBlockchainConfirming(false);
+          setMessage(`Blockchain Consent Granted! Hash: ${hash.slice(0, 10)}...`);
+        } else {
+          setMessage('Assignment updated successfully!');
+        }
         await linkTeacherToChild(child.id, teacherId);
         setSelectedTeachers(prev => [...prev, teacherId]);
+        setTimeout(() => setMessage(''), 5000);
       }
-      setMessage('Assignment updated successfully!');
-      setTimeout(() => setMessage(''), 3000);
+      
+      // Trigger parent component refresh
+      if (onUpdate) onUpdate();
+      
     } catch (err) {
       console.error('Error updating teacher assignment:', err);
-      setError('Failed to update assignment');
+      setError(err.message || 'Failed to update assignment');
+      setIsBlockchainConfirming(false);
     } finally {
       setLoading(false);
     }
@@ -65,15 +81,29 @@ function ManageChildAssignments({ isOpen, onClose, child }) {
       if (selectedDoctors.includes(doctorId)) {
         await removeDoctorFromChild(child.id, doctorId);
         setSelectedDoctors(prev => prev.filter(id => id !== doctorId));
+        setMessage('Assignment removed successfully.');
+        setTimeout(() => setMessage(''), 3000);
       } else {
+        if (isBlockchainEnabled()) {
+          setIsBlockchainConfirming(true);
+          const hash = await grantConsentOnChain(child.id, doctorId);
+          setIsBlockchainConfirming(false);
+          setMessage(`Blockchain Consent Granted! Hash: ${hash.slice(0, 10)}...`);
+        } else {
+          setMessage('Assignment updated successfully!');
+        }
         await linkDoctorToChild(child.id, doctorId);
         setSelectedDoctors(prev => [...prev, doctorId]);
+        setTimeout(() => setMessage(''), 5000);
       }
-      setMessage('Assignment updated successfully!');
-      setTimeout(() => setMessage(''), 3000);
+      
+      // Trigger parent component refresh
+      if (onUpdate) onUpdate();
+      
     } catch (err) {
       console.error('Error updating doctor assignment:', err);
-      setError('Failed to update assignment');
+      setError(err.message || 'Failed to update assignment');
+      setIsBlockchainConfirming(false);
     } finally {
       setLoading(false);
     }
@@ -97,6 +127,15 @@ function ManageChildAssignments({ isOpen, onClose, child }) {
         <p className="text-sm text-gray-600 mb-4">
           Managing assignments for <span className="font-semibold">{child.name}</span>
         </p>
+
+        {isBlockchainConfirming && (
+          <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-xl animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="w-5 h-5 rounded-full border-2 border-purple-500 border-t-transparent animate-spin"></div>
+              <p className="text-sm font-bold text-purple-700">Writing Consent to Blockchain...</p>
+            </div>
+          </div>
+        )}
 
         {message && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">

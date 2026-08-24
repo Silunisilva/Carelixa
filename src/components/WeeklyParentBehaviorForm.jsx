@@ -82,9 +82,9 @@ function WeeklyParentBehaviorForm({ child, parentId, onSubmit }) {
       const updatedProgress = await getWeeklyProgress(child.id);
       setWeekProgress(updatedProgress);
 
-      // Check if all three roles have submitted
-      if (updatedProgress?.parentProgress && updatedProgress?.teacherProgress && updatedProgress?.doctorProgress) {
-        console.log('🤖 All roles submitted! Generating AI prediction...');
+      // Check if both parent and teacher have submitted to trigger the prediction manually in the UI
+      if (updatedProgress?.parentProgress && updatedProgress?.teacherProgress) {
+        console.log('🤖 Parent and Teacher submitted! Generating AI prediction...');
         setGeneratingPrediction(true);
         try {
           const pred = await generateWeeklyPrediction(child.id);

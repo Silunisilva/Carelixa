@@ -21,7 +21,11 @@ import {
   arrayUnion as fbArrayUnion,
   arrayRemove as fbArrayRemove,
   deleteDoc as fbDeleteDoc,
+  addDoc as fbAddDoc,
+  serverTimestamp as fbServerTimestamp,
+  orderBy as fbOrderBy,
 } from 'firebase/firestore';
+import { getStorage, ref as fbRef, uploadBytes as fbUploadBytes, getDownloadURL as fbGetDownloadURL } from 'firebase/storage';
 
 // Configure via Vite env vars or replace with your Firebase project values
 const firebaseConfig = {
@@ -42,6 +46,7 @@ console.log('Firebase Config:', {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 
 export {
@@ -64,4 +69,11 @@ export {
   fbArrayUnion,
   fbArrayRemove,
   fbDeleteDoc,
+  fbAddDoc,
+  fbServerTimestamp,
+  fbOrderBy,
+  storage,
+  fbRef,
+  fbUploadBytes,
+  fbGetDownloadURL,
 };

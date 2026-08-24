@@ -103,9 +103,9 @@ function WeeklyProgressTracker({ child, role, onSubmit, customMetrics, userId })
 
       console.log('✅ Progress saved successfully');
 
-      // Check if all three roles have submitted
-      if (updatedProgress?.parentProgress && updatedProgress?.teacherProgress && updatedProgress?.doctorProgress) {
-        console.log('🤖 All roles submitted! Generating AI prediction...');
+      // Check if both parent and teacher have submitted to trigger the prediction manually in the UI
+      if (updatedProgress?.parentProgress && updatedProgress?.teacherProgress) {
+        console.log('🤖 Parent and Teacher submitted! Generating AI prediction...');
         setGeneratingPrediction(true);
         try {
           const pred = await generateWeeklyPrediction(child.id);
@@ -156,7 +156,7 @@ function WeeklyProgressTracker({ child, role, onSubmit, customMetrics, userId })
     <div className="glass-modern p-6 rounded-2xl border border-white/20">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-          🎯 Weekly Progress ({role})
+          {role === 'doctor' ? '🎯 Monthly Assessment' : `🎯 Weekly Progress (${role})`}
         </h3>
         <div className="space-x-2">
           {submitted ? (

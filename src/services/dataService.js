@@ -10,7 +10,61 @@ import {
   fbArrayUnion,
   fbArrayRemove,
   fbGetDoc,
+  fbAddDoc,
+  fbServerTimestamp,
+  fbOrderBy,
+  storage,
+  fbRef,
+  fbUploadBytes,
+  fbGetDownloadURL,
 } from '../firebase';
+import { isBlockchainEnabled, verifyConsentOnChain } from './blockchainService';
+
+// ─── Audit Trail Logger ─────────────────────────────────────────────
+
+/**
+ * Logs a critical action to the immutable audit trail
+ */
+export const logAuditEvent = async (actorId, actorRole, actionType, targetChildId, details = {}) => {
+  try {
+    const auditPayload = {
+      actor_id: actorId,
+      actor_role: actorRole,
+      action: actionType,
+      target_id: targetChildId,
+      metadata: details,
+      timestamp: fbServerTimestamp(),
+    };
+    await fbAddDoc(fbCollection(db, 'audit_logs'), auditPayload);
+  } catch (error) {
+    console.error('Failed to write to audit trail:', error);
+    // Deliberately not throwing to prevent blocking the main user flow
+  }
+};
+
+/**
+ * Fetch audit logs for a specific child
+ */
+export const getChildAuditLogs = async (childId) => {
+  try {
+    const q = fbQuery(
+      fbCollection(db, 'audit_logs'),
+      fbWhere('target_id', '==', childId)
+    );
+    const snapshot = await fbGetDocs(q);
+    const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Sort locally to avoid needing a Firestore Composite Index
+    return logs.sort((a, b) => {
+      const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+      const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+      return timeB - timeA; // Descending
+    });
+  } catch (error) {
+    console.error('Error fetching audit logs:', error);
+    return [];
+  }
+};
 
 // ─── Children Management ───────────────────────────────────────────
 
@@ -171,6 +225,12 @@ export const saveMCHATScore = async (childId, mchatData) => {
       mchatCompletedAt: new Date().toISOString(),
       mchatCompleted: true,
     });
+    
+    // Audit log
+    await logAuditEvent('parent', 'parent', 'COMPLETED_MCHAT', childId, { 
+      score: mchatData.score, 
+      riskLevel: mchatData.riskLevel 
+    });
   } catch (error) {
     console.error('Error saving M-CHAT score:', error);
     throw error;
@@ -227,7 +287,18 @@ export const getTeacherChildren = async (teacherId) => {
       fbWhere('linkedTeachers', 'array-contains', teacherId)
     );
     const snapshot = await fbGetDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let children = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    if (isBlockchainEnabled()) {
+      const authorizedChildren = [];
+      for (const child of children) {
+        const hasAccess = await verifyConsentOnChain(child.id, teacherId);
+        if (hasAccess) authorizedChildren.push(child);
+      }
+      children = authorizedChildren;
+    }
+    
+    return children;
   } catch (error) {
     console.error('Error fetching teacher children:', error);
     return [];
@@ -280,7 +351,18 @@ export const getDoctorChildren = async (doctorId) => {
       fbWhere('linkedDoctors', 'array-contains', doctorId)
     );
     const snapshot = await fbGetDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let children = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    if (isBlockchainEnabled()) {
+      const authorizedChildren = [];
+      for (const child of children) {
+        const hasAccess = await verifyConsentOnChain(child.id, doctorId);
+        if (hasAccess) authorizedChildren.push(child);
+      }
+      children = authorizedChildren;
+    }
+    
+    return children;
   } catch (error) {
     console.error('Error fetching doctor children:', error);
     return [];
@@ -369,7 +451,8 @@ export const getUsersByRole = async (role) => {
 export const updateUser = async (userId, updates) => {
   try {
     const docRef = fbDoc(db, 'users', userId);
-    await fbUpdateDoc(docRef, updates);
+    // Use fbSetDoc with merge: true instead of fbUpdateDoc to ensure the document is created if it doesn't exist
+    await fbSetDoc(docRef, updates, { merge: true });
   } catch (error) {
     console.error('Error updating user:', error);
     throw error;
@@ -486,6 +569,10 @@ export const submitParentWeeklyProgress = async (childId, progressData, parentId
       status: await checkAndUpdateWeeklyStatus(childId, weekId),
     });
 
+    // Audit log
+    await logAuditEvent(parentId, 'parent', 'SUBMITTED_PROGRESS', childId, { weekId });
+
+
     // Generate prediction after save (async, no await to avoid delays)
     generateAndStorePrediction(childId, weekId).catch(err => 
       console.warn('Prediction generation failed:', err)
@@ -520,6 +607,10 @@ export const submitTeacherWeeklyProgress = async (childId, progressData, teacher
       },
       status: await checkAndUpdateWeeklyStatus(childId, weekId),
     });
+
+    // Audit log
+    await logAuditEvent(teacherId, 'teacher', 'SUBMITTED_PROGRESS', childId, { weekId });
+
 
     // Generate prediction after save (async, no await to avoid delays)
     generateAndStorePrediction(childId, weekId).catch(err => 
@@ -556,6 +647,10 @@ export const submitDoctorWeeklyProgress = async (childId, progressData, doctorId
       status: await checkAndUpdateWeeklyStatus(childId, weekId),
     });
 
+    // Audit log
+    await logAuditEvent(doctorId, 'doctor', 'SUBMITTED_PROGRESS', childId, { weekId });
+
+
     // Generate prediction after save (async, no await to avoid delays)
     generateAndStorePrediction(childId, weekId).catch(err => 
       console.warn('Prediction generation failed:', err)
@@ -583,9 +678,10 @@ const checkAndUpdateWeeklyStatus = async (childId, weekId) => {
     const hasTeacher = !!data.teacherProgress;
     const hasDoctor = !!data.doctorProgress;
     
-    // Only trigger model if ALL 3 have submitted AND no prediction exists yet
-    if (hasParent && hasTeacher && hasDoctor && !data.modelPrediction) {
-      console.log('✅ All 3 roles submitted! Triggering AI model...');
+    // Only trigger model if Parent and Teacher have submitted AND no prediction exists yet.
+    // Doctor submissions are optional/monthly, so we don't wait for them.
+    if (hasParent && hasTeacher && !data.modelPrediction) {
+      console.log('✅ Parent and Teacher submitted! Triggering AI model...');
       await triggerWeeklyAIModel(childId, weekId);
       return 'complete';
     }
@@ -662,10 +758,10 @@ export const getWeeklyProgressStatus = async (childId) => {
     const doctorSubmitted = !!data.doctorProgress;
     const submittedCount = [parentSubmitted, teacherSubmitted, doctorSubmitted].filter(Boolean).length;
     
-    // If everyone has submitted but prediction is missing or errored,
+    // If parent and teacher have submitted but prediction is missing or errored,
     // trigger regeneration in the background so older records can be fixed
     const prediction = data.modelPrediction || null;
-    if (submittedCount === 3 && (!prediction || prediction.error)) {
+    if (parentSubmitted && teacherSubmitted && (!prediction || prediction.error)) {
       // fire-and-forget regeneration to avoid blocking the UI
       generateAndStorePrediction(childId, weekId).catch((err) => {
         console.warn('[Prediction Regen] failed for', childId, weekId, err?.message || err);
@@ -690,6 +786,196 @@ export const getWeeklyProgressStatus = async (childId) => {
 };
 
 /**
+ * Get the most recent weekly progress for a child (regardless of the current week)
+ */
+export const getLatestWeeklyProgress = async (childId) => {
+  try {
+    const q = fbQuery(fbCollection(db, 'children', childId, 'weeklyProgress'));
+    const snap = await fbGetDocs(q);
+    
+    // Sort descending (newest first)
+    const weeks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    weeks.sort((a, b) => b.id.localeCompare(a.id));
+    
+    if (weeks.length > 0) {
+      return weeks[0];
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching latest weekly progress:', error);
+    return null;
+  }
+};
+
+// ─── Activity Sheets ────────────────────────────────────────────────
+
+/**
+ * Uploads an activity sheet to Firebase Storage and saves the metadata to Firestore.
+ */
+export const uploadActivitySheet = async (childId, teacherId, file, title) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Call local Python backend
+    const response = await fetch('http://localhost:5001/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Save metadata to Firestore
+    const sheetData = {
+      title: title || file.name,
+      fileName: data.filename,
+      url: data.url, // The local URL returned by Python (e.g. http://localhost:5001/uploads/...)
+      uploadedBy: teacherId,
+      createdAt: fbServerTimestamp(),
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+    };
+    
+    const docRef = await fbAddDoc(fbCollection(db, 'children', childId, 'activity_sheets'), sheetData);
+    
+    // Log audit event
+    await logAuditEvent(teacherId, 'teacher', 'UPLOADED_ACTIVITY_SHEET', childId, { sheetId: docRef.id });
+    
+    return { id: docRef.id, ...sheetData };
+  } catch (error) {
+    console.error('Error uploading activity sheet:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetches all activity sheets for a child.
+ */
+export const getChildActivitySheets = async (childId) => {
+  try {
+    const q = fbQuery(
+      fbCollection(db, 'children', childId, 'activity_sheets'),
+      fbOrderBy('createdAt', 'desc')
+    );
+    const snapshot = await fbGetDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error fetching activity sheets:', error);
+    return [];
+  }
+};
+
+/**
+ * Get the most recent monthly progress analysis for a child (last 4 weeks of data)
+ */
+export const getMonthlyProgressAnalysis = async (childId) => {
+  try {
+    const q = fbQuery(fbCollection(db, 'children', childId, 'weeklyProgress'));
+    const snap = await fbGetDocs(q);
+    
+    // Sort descending (newest first) and limit to last 4 weeks
+    const weeks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    weeks.sort((a, b) => b.id.localeCompare(a.id));
+    const last4Weeks = weeks.slice(0, 4);
+    
+    if (last4Weeks.length === 0) {
+      return null;
+    }
+
+    const sums = {};
+    const counts = {};
+
+    last4Weeks.forEach(week => {
+      // Parent metrics
+      if (week.parentProgress) {
+        ['meltdowns', 'sleep', 'appetite'].forEach(k => {
+          if (week.parentProgress[k] !== undefined) {
+            sums[k] = (sums[k] || 0) + week.parentProgress[k];
+            counts[k] = (counts[k] || 0) + 1;
+          }
+        });
+      }
+      // Teacher metrics
+      if (week.teacherProgress?.metrics) {
+        ['communication', 'instructions', 'focus', 'social', 'emotional'].forEach(k => {
+          if (week.teacherProgress.metrics[k] !== undefined) {
+            sums[k] = (sums[k] || 0) + week.teacherProgress.metrics[k];
+            counts[k] = (counts[k] || 0) + 1;
+          }
+        });
+      }
+    });
+
+    const averages = {};
+    Object.keys(sums).forEach(k => {
+      averages[k] = sums[k] / counts[k];
+    });
+
+    const mappedScores = [];
+    if (averages.communication) mappedScores.push({ name: 'Communication', score: averages.communication });
+    if (averages.instructions) mappedScores.push({ name: 'Following Instructions', score: averages.instructions });
+    if (averages.focus) mappedScores.push({ name: 'Focus Duration', score: averages.focus });
+    if (averages.social) mappedScores.push({ name: 'Social Interaction', score: averages.social });
+    if (averages.emotional) mappedScores.push({ name: 'Emotional Regulation', score: averages.emotional });
+    
+    // Reverse meltdowns since lower is better (so we map it to 6 - score for ranking purposes)
+    if (averages.meltdowns) mappedScores.push({ name: 'Behavior Regulation', score: 6 - averages.meltdowns });
+    if (averages.sleep) mappedScores.push({ name: 'Sleep Quality', score: averages.sleep });
+
+    mappedScores.sort((a, b) => a.score - b.score);
+    
+    const weakestArea = mappedScores.length > 0 ? mappedScores[0] : { name: 'Pending Data', score: 0 };
+    const strongestArea = mappedScores.length > 0 ? mappedScores[mappedScores.length - 1] : { name: 'Pending Data', score: 0 };
+
+    const engagementPercent = averages.social ? Math.round((averages.social / 5) * 100) : 0;
+    const independencePercent = averages.instructions ? Math.round((averages.instructions / 5) * 100) : 0;
+
+    return {
+      weeksAnalyzed: last4Weeks.length,
+      engagementPercent,
+      independencePercent,
+      weakestArea: weakestArea.name,
+      strongestArea: strongestArea.name,
+      medicalSummary: mappedScores.length > 0 
+        ? `Over the past ${last4Weeks.length} week(s), the patient has demonstrated positive responses in ${strongestArea.name} (averaging ${(strongestArea.score).toFixed(1)}/5). However, ${weakestArea.name} remains a challenge (averaging ${(weakestArea.score).toFixed(1)}/5). Recommended focus for the coming cycles: targeted strategies for ${weakestArea.name}.`
+        : "Insufficient progress data gathered over the last month to generate a reliable medical summary.",
+      averages
+    };
+  } catch (error) {
+    console.error('Error fetching monthly progress analysis:', error);
+    return null;
+  }
+};
+
+/**
+ * Get the most recent doctor progress for a child, falling back to older weeks.
+ */
+const getLastKnownDoctorProgress = async (childId, currentWeekId) => {
+  try {
+    const q = fbQuery(fbCollection(db, 'children', childId, 'weeklyProgress'));
+    const snap = await fbGetDocs(q);
+    
+    // Get all weeks and sort descending (newest first)
+    const weeks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    weeks.sort((a, b) => b.id.localeCompare(a.id));
+    
+    // Find the first week that is <= currentWeekId AND has doctorProgress
+    for (const week of weeks) {
+      if (week.id <= currentWeekId && week.doctorProgress && Object.keys(week.doctorProgress).length > 0) {
+        return week.doctorProgress;
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching last known doctor progress:', error);
+  }
+  return {};
+};
+
+/**
  * Collect all available weekly progress data and generate AI predictions
  * Called when all roles have submitted their weekly observations
  */
@@ -709,7 +995,12 @@ export const generateWeeklyPrediction = async (childId) => {
     // Collect all available scores (data stored directly in parentProgress, not under metrics)
     const parentMetrics = data.parentProgress || {};
     const teacherMetrics = data.teacherProgress || {};
-    const doctorMetrics = data.doctorProgress || {};
+    let doctorMetrics = data.doctorProgress || {};
+    
+    // If the doctor hasn't submitted this week, fallback to their last monthly submission
+    if (Object.keys(doctorMetrics).length === 0) {
+      doctorMetrics = await getLastKnownDoctorProgress(childId, weekId);
+    }
     
     // Calculate overall scores from metrics
     const allMetrics = { ...parentMetrics, ...teacherMetrics, ...doctorMetrics };
@@ -797,7 +1088,19 @@ export const generateAndStorePrediction = async (childId, weekId) => {
     // Collect all available scores (data stored directly, not under .metrics wrapper)
     const parentMetrics = weekData.parentProgress || {};
     const teacherMetrics = weekData.teacherProgress || {};
-    const doctorMetrics = weekData.doctorProgress || {};
+    
+    // Only generate a prediction if both Parent and Teacher have submitted for the week
+    if (Object.keys(parentMetrics).length === 0 || Object.keys(teacherMetrics).length === 0) {
+      console.log('⏳ Waiting for both Parent and Teacher to submit before generating prediction.');
+      return null;
+    }
+    
+    let doctorMetrics = weekData.doctorProgress || {};
+    
+    // If the doctor hasn't submitted this week, fallback to their last monthly submission
+    if (Object.keys(doctorMetrics).length === 0) {
+      doctorMetrics = await getLastKnownDoctorProgress(childId, weekId);
+    }
     
     // Calculate overall scores from metrics
     const allMetrics = { ...parentMetrics, ...teacherMetrics, ...doctorMetrics };
@@ -854,6 +1157,13 @@ export const generateAndStorePrediction = async (childId, weekId) => {
           generatedAt: new Date().toISOString(),
         },
       });
+      
+      // Audit log
+      await logAuditEvent('system', 'system', 'AI_PREDICTION_GENERATED', childId, { 
+        weekId, 
+        weakestArea: prediction.weakestArea 
+      });
+      
       console.log('✅ Prediction stored successfully');
     } else {
       console.warn('❌ Prediction contains error:', prediction?.error);

@@ -264,8 +264,21 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // ─── Update User Profile Local State ─────────────────────────────
+  const updateUserProfile = (updates) => {
+    if (currentUser) {
+      const newUserData = { ...currentUser, ...updates };
+      saveUserToLocal(currentUser.id, { 
+        name: newUserData.name, 
+        role: newUserData.role, 
+        email: newUserData.email 
+      });
+      setCurrentUser(newUserData);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ currentUser, authLoading, login, register, logout, loginWithGoogle, getTeachers, getDoctors }}>
+    <AuthContext.Provider value={{ currentUser, authLoading, login, register, logout, loginWithGoogle, getTeachers, getDoctors, updateUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

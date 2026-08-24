@@ -3,8 +3,9 @@ Flask API for autism children progress prediction model.
 Provides endpoints for making predictions based on weekly progress data.
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 from prediction_service import PredictionService
 import os
 from dotenv import load_dotenv
@@ -18,6 +19,12 @@ CORS(app)
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 models_dir = os.path.join(backend_dir, "models")
 prediction_service = PredictionService(model_dir=models_dir)
+
+# Configure Uploads
+UPLOAD_FOLDER = os.path.join(backend_dir, "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload size
 
 # Load models on startup
 @app.before_request
@@ -117,6 +124,51 @@ def model_info():
         "skill_areas": list(prediction_service.skill_areas.keys()),
         "questions": prediction_service.all_questions
     })
+
+# ─── FILE UPLOAD ROUTES ──────────────────────────────────────────────
+
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    """
+    Handle file uploads from the frontend.
+    Saves the file locally and returns the URL.
+    """
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part"}), 400
+            
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+            
+        if file:
+            filename = secure_filename(file.filename)
+            # Add a timestamp to prevent overwriting files with the same name
+            import time
+            unique_filename = f"{int(time.time())}_{filename}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            file.save(file_path)
+            
+            # Return the local URL
+            file_url = f"{request.host_url}uploads/{unique_filename}"
+            
+            return jsonify({
+                "success": True,
+                "url": file_url,
+                "filename": unique_filename
+            }), 200
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/uploads/<filename>")
+def uploaded_file(filename):
+    """Serve the uploaded files."""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# ─────────────────────────────────────────────────────────────────────
 
 @app.errorhandler(404)
 def not_found(error):

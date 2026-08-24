@@ -33,21 +33,22 @@ function WeeklyProgressStatus({ childId, role }) {
   if (loading || !status) return null;
 
   const { submittedCount, parentSubmitted, teacherSubmitted, doctorSubmitted, prediction } = status;
-  const allSubmitted = submittedCount === 3;
+  // A week is considered ready for prediction if parent and teacher have submitted
+  const readyForPrediction = parentSubmitted && teacherSubmitted;
 
   return (
     <div className="glass-modern p-6 rounded-2xl border border-white/20">
       <div className="mb-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-lg text-gray-800">📊 Weekly Team Progress</h3>
+          <h3 className="font-bold text-lg text-gray-800">
+            {role === 'doctor' ? '📊 Patient Efficacy Status' : '📊 Weekly Team Progress'}
+          </h3>
           <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-            allSubmitted 
+            readyForPrediction 
               ? 'bg-emerald-100 text-emerald-700'
-              : submittedCount > 0
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-gray-100 text-gray-700'
+              : 'bg-amber-100 text-amber-700'
           }`}>
-            {submittedCount}/3 Submitted
+            {readyForPrediction ? 'Active' : 'Pending'}
           </span>
         </div>
 
@@ -95,19 +96,19 @@ function WeeklyProgressStatus({ childId, role }) {
       </div>
 
       {/* User Status Message */}
-      {role === 'parent' && parentSubmitted && !allSubmitted && (
+      {role === 'parent' && parentSubmitted && !readyForPrediction && (
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 mb-4">
-          ✓ Your progress submitted! Waiting for {3 - submittedCount} more team members...
+          ✓ Your progress submitted! Waiting for teacher...
         </div>
       )}
-      {role === 'teacher' && teacherSubmitted && !allSubmitted && (
+      {role === 'teacher' && teacherSubmitted && !readyForPrediction && (
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 mb-4">
-          ✓ Your observations submitted! Waiting for {3 - submittedCount} more team members...
+          ✓ Your observations submitted! Waiting for parent...
         </div>
       )}
-      {role === 'doctor' && doctorSubmitted && !allSubmitted && (
+      {role === 'doctor' && doctorSubmitted && !readyForPrediction && (
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 mb-4">
-          ✓ Your clinical assessment submitted! Waiting for {3 - submittedCount} more team members...
+          ✓ Your clinical assessment submitted! Waiting for teacher/parent to sync...
         </div>
       )}
       {!parentSubmitted && role === 'parent' && (
@@ -127,7 +128,7 @@ function WeeklyProgressStatus({ childId, role }) {
       )}
 
       {/* Prediction Results */}
-      {allSubmitted && prediction && (
+      {readyForPrediction && prediction && (
         <div className="mt-6 space-y-4">
           <div className="p-4 bg-purple-50 border-2 border-purple-200 rounded-2xl text-center">
             <p className="text-lg font-bold text-purple-800 flex items-center justify-center gap-2">
@@ -152,14 +153,14 @@ function WeeklyProgressStatus({ childId, role }) {
           )}
         </div>
       )}
-      {allSubmitted && !prediction && (
+      {readyForPrediction && !prediction && (
         <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 text-center">
-          ✓ All submitted! Generating prediction...
+          ✓ Inputs received! Generating prediction...
         </div>
       )}
-      {!allSubmitted && (
+      {!readyForPrediction && (
         <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 text-center">
-          ⏳ Awaiting all team members to submit ({submittedCount}/3)
+          ⏳ Awaiting parent and teacher submissions
         </div>
       )}
     </div>

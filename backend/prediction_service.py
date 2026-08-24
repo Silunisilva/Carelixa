@@ -148,7 +148,7 @@ Respond ONLY with a valid JSON object in the following format, with no markdown 
                         "content": prompt,
                     }
                 ],
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 temperature=0.7,
                 response_format={"type": "json_object"},
             )

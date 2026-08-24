@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import DashboardLayout from '../components/DashboardLayout';
 import { mockChildren, mockDocuments, mockAIRecommendations } from '../data/mockData';
-import { getTeacherChildren, getMCHATScore, getUser } from '../services/dataService';
+import { getTeacherChildren, getMCHATScore, getUser, getMonthlyProgressAnalysis, uploadActivitySheet, getChildActivitySheets } from '../services/dataService';
 import WeeklyProgressTracker from '../components/WeeklyProgressTracker';
 import WeeklyProgressStatus from '../components/WeeklyProgressStatus';
 import MCHATResponsesViewer from '../components/MCHATResponsesViewer';
@@ -12,7 +12,6 @@ function TeacherDashboard() {
   const { currentUser } = useAuth();
   const [assignedChildren, setAssignedChildren] = useState([]);
   const [selectedChild, setSelectedChild] = useState(null);
-  const [uploadedDocs, setUploadedDocs] = useState(mockDocuments);
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocType, setNewDocType] = useState('Progress Note');
   const [tab, setTab] = useState('overview');
@@ -22,6 +21,13 @@ function TeacherDashboard() {
   const [showMCHATResponses, setShowMCHATResponses] = useState(false);
   const [parentInfo, setParentInfo] = useState(null);
   const [currentPrediction, setCurrentPrediction] = useState(null);
+  const [monthlyAnalysis, setMonthlyAnalysis] = useState(null);
+  
+  // File Upload State
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadedDocs, setUploadedDocs] = useState([]);
 
   // Fetch children assigned to this teacher
   useEffect(() => {
@@ -71,22 +77,27 @@ function TeacherDashboard() {
     }
   }, [selectedChild]);
 
-  // Fetch parent info when selected child changes
+  // Fetch parent info, analysis, and docs when selected child changes
   useEffect(() => {
-    const loadParentInfo = async () => {
-      if (!selectedChild?.parentId) {
-        setParentInfo(null);
-        return;
-      }
+    const loadChildData = async () => {
+      if (!selectedChild) return;
       try {
-        const parent = await getUser(selectedChild.parentId);
+        const [parent, analysis, sheets] = await Promise.all([
+          getUser(selectedChild.parentId),
+          getMonthlyProgressAnalysis(selectedChild.id),
+          getChildActivitySheets(selectedChild.id)
+        ]);
         setParentInfo(parent);
+        setMonthlyAnalysis(analysis);
+        setUploadedDocs(sheets);
       } catch (err) {
-        console.error('Error loading parent info:', err);
+        console.error('Error loading child additional data:', err);
         setParentInfo(null);
+        setMonthlyAnalysis(null);
+        setUploadedDocs([]);
       }
     };
-    loadParentInfo();
+    loadChildData();
   }, [selectedChild?.id]);
 
   // Fetch prediction when selected child changes
@@ -107,25 +118,41 @@ function TeacherDashboard() {
     fetchPrediction();
   }, [selectedChild]);
 
-  const handleUpload = (e) => {
+  const handleUpload = async (e) => {
     e.preventDefault();
-    if (!newDocTitle || !selectedChild?.id) return;
-
-    const newDoc = {
-      id: Math.random().toString(36).substr(2, 9),
-      childId: selectedChild.id,
-      type: newDocType,
-      title: newDocTitle,
-      uploadedBy: 'Ms. Sarah (Classroom Teacher)',
-      uploadedDate: new Date().toISOString().split('T')[0],
-      url: '#',
-    };
-
-    setUploadedDocs([...uploadedDocs, newDoc]);
-    setNewDocTitle('');
+    if (!newDocTitle.trim() || !selectedFile || !selectedChild || !currentUser) {
+      alert("Please enter a title and select a file.");
+      return;
+    }
+    
+    try {
+      setIsUploading(true);
+      setUploadProgress('Uploading to secure vault...');
+      
+      const newSheet = await uploadActivitySheet(
+        selectedChild.id,
+        currentUser.id,
+        selectedFile,
+        `${newDocType}: ${newDocTitle}`
+      );
+      
+      setUploadedDocs(prev => [newSheet, ...prev]);
+      
+      // Reset form
+      setNewDocTitle('');
+      setSelectedFile(null);
+      
+      // Simulate success message
+      setUploadProgress('Upload Complete!');
+      setTimeout(() => setUploadProgress(''), 3000);
+      
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      alert("Failed to upload file. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   };
-
-  const childDocuments = uploadedDocs.filter(doc => doc.childId === selectedChild?.id);
 
   // Classroom-specific categories for the teacher
   const teacherCategories = useMemo(() => [
@@ -299,9 +326,9 @@ function TeacherDashboard() {
                   {[
                     { id: 'overview', label: 'Student Bio', icon: '👤' },
                     { id: 'performance', label: 'Tracker', icon: '🧠' },
-                    { id: 'reports', label: 'Reports', icon: '📊' },
+                    { id: 'analysis', label: 'Analysis', icon: '👁️' },
                     { id: 'ai', label: 'AI Strategy', icon: '✨' },
-                    { id: 'docs', label: 'Vault', icon: '📁' }
+                    { id: 'docs', label: 'Activity Sheets', icon: '📄' }
                   ].map((t) => (
                     <button
                       key={t.id}
@@ -423,34 +450,43 @@ function TeacherDashboard() {
               </div>
             )}
 
-            {tab === 'reports' && (
+            {tab === 'analysis' && (
               <div className="animate-fadeIn space-y-6">
-                <div className="glass-modern p-8 rounded-[2.5rem] border border-white/20 bg-white/40">
-                  <h3 className="text-2xl font-black text-gray-800 mb-8 tracking-tight">Weekly Narrative Report</h3>
-                  <div className="grid md:grid-cols-2 gap-8">
-                    <div className="space-y-6">
-                      {[
-                        { label: 'Classroom Participation', desc: 'Active involvement in group discussions' },
-                        { label: 'Task Completion Rate', desc: 'Percentage of assigned work finalized' },
-                        { label: 'Peer Engagement Level', desc: 'Success rate of social interactions' }
-                      ].map((field, i) => (
-                        <div key={i}>
-                          <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 block">{field.label}</label>
-                          <div className="h-12 w-full bg-white rounded-xl border border-gray-100 shadow-inner flex items-center px-4">
-                            <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-rose-500 rounded-full" style={{ width: '85%' }}></div>
-                            </div>
-                            <span className="ml-4 font-black text-sm text-gray-800">85%</span>
-                          </div>
-                          <p className="text-[10px] text-gray-400 mt-2 italic font-medium">{field.desc}</p>
-                        </div>
-                      ))}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="glass-modern p-10 rounded-[2.5rem] bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-xl shadow-blue-500/20 flex flex-col justify-center">
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] opacity-70 mb-6">Monthly Focus Area</h3>
+                    <p className="text-4xl font-black mb-4">{monthlyAnalysis?.weakestArea || 'Pending Data'}</p>
+                    <p className=" leading-relaxed font-medium text-white italic">
+                      "Based on patterns over the last {monthlyAnalysis?.weeksAnalyzed || 0} week(s), this domain requires targeted support in upcoming activities."
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-white/40">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center">Engagement</p>
+                      <p className="text-3xl font-black text-gray-800 text-center">{monthlyAnalysis ? `${monthlyAnalysis.engagementPercent}%` : '---'}</p>
+                      <div className="mt-3 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: monthlyAnalysis ? `${monthlyAnalysis.engagementPercent}%` : '0%' }}></div>
+                      </div>
                     </div>
-                    <div className="bg-white/60 p-6 rounded-3xl border border-white shadow-sm flex flex-col">
-                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 block">Behavioral Incidents Log</label>
-                      <div className="flex-1 flex items-center justify-center flex-col text-center opacity-40">
-                        <span className="text-4xl mb-4">🌈</span>
-                        <p className="text-sm font-bold text-gray-800 uppercase tracking-tighter">Zero incidents recorded this period</p>
+                    <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-white/40">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center">Independence</p>
+                      <p className="text-3xl font-black text-gray-800 text-center">{monthlyAnalysis ? `${monthlyAnalysis.independencePercent}%` : '---'}</p>
+                      <div className="mt-3 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: monthlyAnalysis ? `${monthlyAnalysis.independencePercent}%` : '0%' }}></div>
+                      </div>
+                    </div>
+                    <div className="col-span-2 glass-modern p-6 rounded-3xl border border-white/20 bg-emerald-50/50">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Monthly Status</p>
+                          <p className="font-bold text-gray-800">
+                            {monthlyAnalysis?.weeksAnalyzed > 0 
+                              ? `Data aggregated from ${monthlyAnalysis.weeksAnalyzed} recent reports.`
+                              : 'No recent reports found.'}
+                          </p>
+                        </div>
+                        <span className="text-2xl">{monthlyAnalysis?.weeksAnalyzed > 0 ? '📊' : '⏳'}</span>
                       </div>
                     </div>
                   </div>
@@ -520,40 +556,89 @@ function TeacherDashboard() {
                 {/* Upload Section */}
                 <div className="glass-modern p-8 rounded-[2.5rem] border border-white/30 bg-white/40">
                   <h3 className="text-xl font-bold text-gray-800 mb-6">Archive Submission</h3>
-                  <form onSubmit={handleUpload} className="flex flex-col md:flex-row gap-4">
+                  <form onSubmit={handleUpload} className="flex flex-col md:flex-row gap-4 items-center">
                     <select
                       value={newDocType}
                       onChange={(e) => setNewDocType(e.target.value)}
                       className="bg-white px-6 py-3 rounded-2xl border-none font-bold text-sm text-gray-600 focus:ring-2 focus:ring-rose-400 shadow-sm"
+                      disabled={isUploading}
                     >
                       <option value="Progress Note">Progress Note</option>
                       <option value="Activity Report">Activity Report</option>
                       <option value="Behavior Log">Behavior Log</option>
                     </select>
+                    
                     <input
                       type="text"
                       value={newDocTitle}
                       onChange={(e) => setNewDocTitle(e.target.value)}
                       placeholder="Enter artifact title..."
                       className="flex-1 bg-white px-6 py-3 rounded-2xl border-none font-bold text-sm focus:ring-2 focus:ring-rose-400 shadow-sm"
+                      disabled={isUploading}
                     />
-                    <button type="submit" className="bg-rose-500 text-white font-black text-xs px-8 py-3 rounded-2xl hover:bg-rose-600 transition-all uppercase tracking-widest shadow-lg shadow-rose-500/20">
-                      Sync Artifact
+                    
+                    <div className="relative">
+                      <input
+                        type="file"
+                        onChange={(e) => setSelectedFile(e.target.files[0])}
+                        className="hidden"
+                        id="file-upload"
+                        disabled={isUploading}
+                      />
+                      <label 
+                        htmlFor="file-upload"
+                        className={`cursor-pointer bg-white px-6 py-3 rounded-2xl font-bold text-sm shadow-sm border-2 border-dashed ${selectedFile ? 'border-emerald-400 text-emerald-600' : 'border-gray-300 text-gray-500'} flex items-center justify-center min-w-[150px]`}
+                      >
+                        {selectedFile ? 'File Selected ✓' : 'Choose File'}
+                      </label>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      disabled={isUploading || !selectedFile}
+                      className="bg-rose-500 disabled:opacity-50 text-white font-black text-xs px-8 py-4 rounded-2xl hover:bg-rose-600 transition-all uppercase tracking-widest shadow-lg shadow-rose-500/20"
+                    >
+                      {isUploading ? 'Uploading...' : 'Upload Artifact'}
                     </button>
                   </form>
+                  {uploadProgress && (
+                    <div className="mt-4 text-center">
+                      <p className={`text-sm font-bold ${uploadProgress.includes('Complete') ? 'text-emerald-600' : 'text-rose-500 animate-pulse'}`}>
+                        {uploadProgress}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Docs Grid */}
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {childDocuments.slice().reverse().map((doc) => (
-                    <div key={doc.id} className="glass-modern bg-white/60 p-6 rounded-3xl border border-white/60 hover:bg-white transition-all group shadow-sm">
+                  {uploadedDocs.map((doc) => (
+                    <a 
+                      key={doc.id} 
+                      href={doc.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="glass-modern bg-white/60 p-6 rounded-3xl border border-white/60 hover:bg-white transition-all group shadow-sm flex flex-col"
+                    >
                       <div className="flex justify-between items-start mb-6">
                         <div className="w-10 h-10 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center text-xl">📄</div>
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{doc.uploadedDate}</span>
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          {doc.createdAt?.toDate ? doc.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                        </span>
                       </div>
                       <h4 className="font-bold text-gray-900 truncate mb-1 leading-tight">{doc.title}</h4>
-                      <p className="text-xs font-black text-rose-400 uppercase tracking-tighter">{doc.type}</p>
-                    </div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter mb-4 break-all">
+                        {doc.fileName}
+                      </p>
+                      <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-gray-400">
+                          {(doc.size / 1024).toFixed(1)} KB
+                        </span>
+                        <span className="text-xs font-black text-rose-500 group-hover:text-rose-600 transition-colors uppercase">
+                          Open →
+                        </span>
+                      </div>
+                    </a>
                   ))}
                 </div>
               </div>

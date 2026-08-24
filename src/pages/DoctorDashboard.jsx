@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import DashboardLayout from '../components/DashboardLayout';
 import { mockChildren, mockDocuments, mockTimeline, mockAIPlans } from '../data/mockData';
-import { getDoctorChildren, getUser, updateChild } from '../services/dataService';
+import { getDoctorChildren, getUser, updateChild, logAuditEvent, getChildAuditLogs, getLatestWeeklyProgress, getMonthlyProgressAnalysis, getChildActivitySheets } from '../services/dataService';
 import WeeklyProgressTracker from '../components/WeeklyProgressTracker';
 import WeeklyProgressStatus from '../components/WeeklyProgressStatus';
 import MCHATResponsesViewer from '../components/MCHATResponsesViewer';
@@ -34,11 +34,15 @@ function DoctorDashboard() {
 
   const [documents, setDocuments] = useState(mockDocuments);
   const [timeline, setTimeline] = useState(mockTimeline);
+  const [auditLogs, setAuditLogs] = useState([]);
 
-  const [tab, setTab] = useState('overview'); // overview, documents, upload, timeline, progress
+  const [tab, setTab] = useState('profile'); // profile, analysis, team_inputs, activity_sheets, progress, timeline
   const [showMCHATResponses, setShowMCHATResponses] = useState(false);
   const [parentInfo, setParentInfo] = useState(null);
   const [teacherInfo, setTeacherInfo] = useState(null);
+  const [latestWeeklyProgress, setLatestWeeklyProgress] = useState(null);
+  const [monthlyAnalysis, setMonthlyAnalysis] = useState(null);
+  const [activitySheets, setActivitySheets] = useState([]);
 
   // filters for documents
   const [typeFilter, setTypeFilter] = useState('all');
@@ -63,6 +67,16 @@ function DoctorDashboard() {
       console.error('Error saving diagnosis:', err);
     } finally {
       setSavingDiagnosis(false);
+    }
+  };
+
+  const handleDownloadReport = async (doc) => {
+    if (selectedChild && currentUser?.id) {
+      await logAuditEvent(currentUser.id, 'doctor', 'VIEWED_REPORT', selectedChild.id, { 
+        documentId: doc.id, 
+        documentTitle: doc.title 
+      });
+      alert(`Downloading ${doc.title}... (Access recorded in Immutable Audit Trail)`);
     }
   };
 
@@ -141,12 +155,58 @@ function DoctorDashboard() {
         } else {
           setTeacherInfo(null);
         }
+
+        const latestProgress = await getLatestWeeklyProgress(selectedChild.id);
+        setLatestWeeklyProgress(latestProgress);
+
+        const monthlyData = await getMonthlyProgressAnalysis(selectedChild.id);
+        setMonthlyAnalysis(monthlyData);
+        
+        const sheets = await getChildActivitySheets(selectedChild.id);
+        setActivitySheets(sheets);
       } catch (err) {
         console.error('Error loading care team info:', err);
       }
     };
     loadCareTeamInfo();
   }, [selectedChild?.id]);
+
+  // Fetch audit logs when selected child changes
+  useEffect(() => {
+    const fetchAuditLogs = async () => {
+      if (!selectedChild) {
+        setAuditLogs([]);
+        return;
+      }
+      try {
+        const logs = await getChildAuditLogs(selectedChild.id);
+        
+        // Resolve user IDs to real names for better UI display
+        const resolvedLogs = await Promise.all(logs.map(async (log) => {
+          if (log.actor_id === 'system') return { ...log, actorName: 'Carelixa AI System' };
+          
+          let actorToFetch = log.actor_id;
+          // If the log was created with the generic 'parent' string (e.g. MCHAT completion), try to resolve the actual parent ID
+          if (actorToFetch === 'parent' && selectedChild.parentId) {
+            actorToFetch = selectedChild.parentId;
+          }
+          
+          try {
+            const user = await getUser(actorToFetch);
+            return { ...log, actorName: user?.name || user?.firstName || 'Unknown User' };
+          } catch (e) {
+            return { ...log, actorName: log.actor_id };
+          }
+        }));
+        
+        setAuditLogs(resolvedLogs);
+      } catch (err) {
+        console.error('Error fetching audit logs:', err);
+      }
+    };
+    fetchAuditLogs();
+  }, [selectedChild?.id]);
+
 
   const handleFiles = useCallback((files) => {
     const now = new Date().toISOString().split('T')[0];
@@ -365,9 +425,10 @@ function DoctorDashboard() {
 
               <div className="flex flex-wrap gap-2 p-1 bg-gray-100/50 rounded-2xl border border-white/50">
                 {[
-                  { id: 'overview', label: 'Analysis', icon: '👁️' },
-                  { id: 'documents', label: 'Artifacts', icon: '📁' },
-                  { id: 'upload', label: 'Intake', icon: '⬆️' },
+                  { id: 'profile', label: 'Child Profile', icon: '👤' },
+                  { id: 'analysis', label: 'Analysis', icon: '👁️' },
+                  { id: 'team_inputs', label: 'Team Inputs', icon: '👥' },
+                  { id: 'activity_sheets', label: 'Activity Sheets', icon: '📄' },
                   { id: 'progress', label: 'Efficacy', icon: '📈' },
                   { id: 'timeline', label: 'History', icon: '🕰️' }
                 ].map((t) => (
@@ -389,7 +450,7 @@ function DoctorDashboard() {
 
           {/* Dynamic Analysis Section */}
           <div className="flex-1">
-            {tab === 'overview' && (
+            {tab === 'profile' && (
               <div className="animate-fadeIn">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-white/40">
@@ -458,35 +519,47 @@ function DoctorDashboard() {
                       </div>
                     )}
                   </div>
-
-                  <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-50/50 to-purple-50/50">
-                    <h3 className="text-sm font-black text-purple-400 uppercase tracking-widest mb-6">Medical Summary</h3>
-                    <p className="text-gray-700 text-sm leading-relaxed font-medium italic">
-                      "Patient shows significant positive response to visual learning modalities. Recommended focus for coming cycles: sensory integration and peer communication workflows."
-                    </p>
-                    <div className="mt-6 flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold">AI</div>
-                      <span className="text-xs font-bold text-purple-600 tracking-tight">AI-Generated Diagnostic Insight</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
 
-            {tab === 'documents' && (
+            {tab === 'analysis' && (
               <div className="animate-fadeIn space-y-6">
-                <div className="flex items-center justify-between glass-modern p-4 rounded-2xl bg-white/60">
-                  <h3 className="font-bold text-gray-800">Archive Explorer</h3>
-                  <div className="flex gap-3">
-                    <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-white/80 border-none rounded-xl text-xs font-bold px-4 py-2 focus:ring-2 focus:ring-purple-400 outline-none shadow-sm capitalize">
-                      {uniqueTypes.map((t) => <option key={t} value={t}>{t === 'all' ? 'All Formats' : t}</option>)}
-                    </select>
+                <div className="glass-modern p-6 rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-50/50 to-purple-50/50">
+                  <h3 className="text-sm font-black text-purple-400 uppercase tracking-widest mb-6">Medical Summary</h3>
+                  <p className="text-gray-700 text-sm leading-relaxed font-medium italic">
+                    {monthlyAnalysis?.medicalSummary || "Awaiting sufficient data to generate summary..."}
+                  </p>
+                  <div className="mt-6 flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold">AI</div>
+                    <span className="text-xs font-bold text-purple-600 tracking-tight">AI-Generated Diagnostic Insight</span>
                   </div>
                 </div>
 
+                {monthlyAnalysis && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="glass-modern p-6 rounded-3xl border border-white/40 bg-emerald-50/30">
+                      <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Top Strength</p>
+                      <p className="text-xl font-black text-gray-800">{monthlyAnalysis.strongestArea}</p>
+                    </div>
+                    <div className="glass-modern p-6 rounded-3xl border border-white/40 bg-rose-50/30">
+                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-2">Priority Focus Area</p>
+                      <p className="text-xl font-black text-gray-800">{monthlyAnalysis.weakestArea}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'activity_sheets' && (
+              <div className="animate-fadeIn space-y-6">
+                <div className="flex items-center justify-between glass-modern p-4 rounded-2xl bg-white/60">
+                  <h3 className="font-bold text-gray-800">Teacher Activity Sheets</h3>
+                </div>
+
                 <div className="grid sm:grid-cols-2 gap-4">
-                  {childDocuments.length > 0 ? (
-                    childDocuments.map((doc) => (
+                  {activitySheets.length > 0 ? (
+                    activitySheets.map((doc) => (
                       <div key={doc.id} className="glass-modern bg-white/60 p-5 rounded-3xl border border-white/60 hover:bg-white transition-all group shadow-sm hover:shadow-lg">
                         <div className="flex justify-between items-start mb-4">
                           <div className="w-10 h-10 bg-indigo-50 text-indigo-500 rounded-xl flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
@@ -495,48 +568,109 @@ function DoctorDashboard() {
                           <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full uppercase">Verified</span>
                         </div>
                         <h4 className="font-bold text-gray-800 truncate mb-1">{doc.title}</h4>
-                        <p className="text-xs font-bold text-indigo-400 uppercase tracking-tighter mb-4">{doc.type}</p>
+                        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-tighter mb-4 break-all">
+                          {doc.fileName}
+                        </p>
 
                         <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-gray-400 tracking-tight">{doc.uploadedDate}</span>
-                          <button className="text-xs font-black text-purple-600 hover:text-purple-700 decoration-2 underline-offset-4 hover:underline transition-all">
-                            DOWNLOAD
-                          </button>
+                          <span className="text-[11px] font-bold text-gray-400 tracking-tight">
+                            {doc.createdAt?.toDate ? doc.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                          </span>
+                          <a 
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => handleDownloadReport(doc)}
+                            className="text-xs font-black text-purple-600 hover:text-purple-700 decoration-2 underline-offset-4 hover:underline transition-all"
+                          >
+                            OPEN
+                          </a>
                         </div>
                       </div>
                     ))
                   ) : (
                     <div className="col-span-full py-20 text-center glass-modern rounded-3xl opacity-50 italic font-medium text-gray-500">
-                      No clinical artifacts discovered for the current filter criteria...
+                      No activity sheets have been uploaded by the teacher yet.
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            {tab === 'upload' && (
-              <div className="animate-fadeIn">
-                <div
-                  onDrop={onDrop}
-                  onDragOver={(e) => e.preventDefault()}
-                  className="glass-modern bg-white/60 border-2 border-dashed border-purple-200 rounded-[3rem] p-16 text-center group hover:border-purple-400 hover:bg-white transition-all cursor-pointer"
-                >
-                  <div className="w-24 h-24 bg-purple-50 text-purple-500 rounded-[2rem] flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner group-hover:scale-110 transition-transform duration-500">
-                    📂
-                  </div>
-                  <h3 className="text-2xl font-black text-gray-800 mb-4 tracking-tight">Clinical Intake Portal</h3>
-                  <p className="text-gray-500 mb-8 font-medium max-w-sm mx-auto leading-relaxed">
-                    Securely synchronize medical imagery, diagnostic reports, and behavioral assessments.
-                  </p>
+            {tab === 'team_inputs' && (
+              <div className="animate-fadeIn space-y-6">
+                <div className="glass-modern p-8 rounded-[3rem] border border-white/40 bg-white/60">
+                  <h3 className="text-2xl font-black text-gray-800 tracking-tight mb-8">Recent Team Observations</h3>
+                  
+                  {latestWeeklyProgress ? (
+                    <div className="grid md:grid-cols-2 gap-8">
+                      {/* Parent Inputs */}
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center text-xl shadow-inner">👨‍👩‍👧</div>
+                          <div>
+                            <p className="text-sm font-black text-gray-800">Parent Report</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{latestWeeklyProgress.id}</p>
+                          </div>
+                        </div>
+                        
+                        {latestWeeklyProgress.parentProgress ? (
+                          <div className="bg-white/80 p-6 rounded-3xl border border-white shadow-sm space-y-4">
+                            {[
+                              { key: 'meltdowns', label: 'Frequency of Meltdowns (1-5, 5=Most Frequent)' },
+                              { key: 'sleep', label: 'Sleep Quality (1-5, 5=Excellent)' },
+                              { key: 'appetite', label: 'Appetite (1-5, 5=Excellent)' },
+                            ].map(metric => (
+                              <div key={metric.key} className="flex justify-between items-center pb-3 border-b border-gray-50 last:border-0 last:pb-0">
+                                <span className="text-xs font-bold text-gray-600">{metric.label}</span>
+                                <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-black text-sm">
+                                  {latestWeeklyProgress.parentProgress[metric.key] || '-'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 italic">No parent data for this week.</p>
+                        )}
+                      </div>
 
-                  <label className="inline-block mt-8 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-sm px-10 py-4 rounded-2xl cursor-pointer hover:shadow-[0_10px_25px_-5px_rgba(124,58,237,0.4)] transform active:scale-95 transition-all">
-                    <span>LAUNCH UPLOADER</span>
-                    <input type="file" multiple onChange={onFileInput} className="hidden" />
-                  </label>
-
-                  <p className="text-[10px] font-black text-gray-300 mt-12 uppercase tracking-[0.3em]">
-                    End-to-End Encryption Enabled • Blockchain Hash on Sync
-                  </p>
+                      {/* Teacher Inputs */}
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center text-xl shadow-inner">👩‍🏫</div>
+                          <div>
+                            <p className="text-sm font-black text-gray-800">Teacher Report</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{latestWeeklyProgress.id}</p>
+                          </div>
+                        </div>
+                        
+                        {latestWeeklyProgress.teacherProgress ? (
+                          <div className="bg-white/80 p-6 rounded-3xl border border-white shadow-sm space-y-4">
+                            {[
+                              { key: 'communication', label: 'Communication in Class (1-5)' },
+                              { key: 'instructions', label: 'Following Instructions (1-5)' },
+                              { key: 'focus', label: 'Focus Duration (1-5)' },
+                              { key: 'social', label: 'Social Interaction (1-5)' },
+                              { key: 'emotional', label: 'Emotional Regulation (1-5)' },
+                            ].map(metric => (
+                              <div key={metric.key} className="flex justify-between items-center pb-3 border-b border-gray-50 last:border-0 last:pb-0">
+                                <span className="text-xs font-bold text-gray-600">{metric.label}</span>
+                                <span className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-black text-sm">
+                                  {latestWeeklyProgress.teacherProgress.metrics?.[metric.key] || '-'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 italic">No teacher data for this week.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-20 text-center glass-modern rounded-3xl opacity-50 italic font-medium text-gray-500 border border-dashed border-gray-300">
+                      No progress reports have been submitted for this child yet.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -570,23 +704,29 @@ function DoctorDashboard() {
                 </div>
 
                 <div className="relative border-l-2 border-purple-100 ml-6 pl-10 space-y-8 py-4">
-                  {childTimeline.length > 0 ? (
-                    childTimeline.map((ev) => (
-                      <div key={ev.id} className="relative group">
+                  {auditLogs.length > 0 ? (
+                    auditLogs.map((log) => (
+                      <div key={log.id} className="relative group">
                         <div className="absolute -left-[3.25rem] top-0 w-8 h-8 rounded-2xl bg-white border border-purple-100 text-purple-500 flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform z-10">
-                          {ev.type === 'ai_plan' ? '🤖' : '📄'}
+                          {log.action.includes('PREDICTION') ? '🤖' : (log.action.includes('REPORT') ? '📄' : '📝')}
                         </div>
                         <div className="glass-modern bg-white/60 p-6 rounded-3xl border border-white/60 group-hover:bg-white transition-all shadow-sm group-hover:shadow-md">
                           <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-bold text-gray-800 tracking-tight">{ev.title}</h4>
-                            <span className="text-[11px] font-black text-gray-400">{ev.date}</span>
+                            <h4 className="font-bold text-gray-800 tracking-tight">Audit Event: {log.action}</h4>
+                            <span className="text-[11px] font-black text-gray-400">
+                              {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : new Date().toLocaleString()}
+                            </span>
                           </div>
-                          <p className="text-sm text-gray-600 leading-relaxed font-medium">{ev.description}</p>
+                          <p className="text-sm text-gray-600 leading-relaxed font-medium">
+                            <strong>Actor:</strong> {log.actorName} <span className="text-gray-400 text-xs uppercase ml-1">({log.actor_role})</span>
+                            <br />
+                            <strong>Metadata:</strong> <span className="text-xs">{JSON.stringify(log.metadata)}</span>
+                          </p>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <p className="text-gray-400 font-bold italic ml-2">No historical events recorded for this narrative...</p>
+                    <p className="text-gray-400 font-bold italic ml-2">No secure audit events recorded for this patient...</p>
                   )}
                 </div>
               </div>
