@@ -160,7 +160,7 @@ function AuthPage({ mode = 'login' }) {
           <p className="text-lg text-gray-600 mb-2">
             Welcome, <span className="font-semibold text-purple-600">{name}</span>!
           </p>
-          <p className="text-gray-500 mb-6">Registered as {roleLabels[role] || role}</p>
+          <p className="text-gray-500 mb-6">Registered as {roleConfig[role]?.label || role}</p>
 
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
             <p className="text-green-700 font-medium">✅ Your account has been created successfully!</p>
