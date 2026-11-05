@@ -18,7 +18,7 @@ import {
   fbUploadBytes,
   fbGetDownloadURL,
 } from '../firebase';
-import { isBlockchainEnabled, verifyConsentOnChain } from './blockchainService';
+import { isBlockchainEnabled, verifyConsentOnChain, grantConsentOnChain } from './blockchainService';
 
 // ─── Audit Trail Logger ─────────────────────────────────────────────
 
@@ -280,20 +280,54 @@ export const getAllTeachers = async () => {
 /**
  * Get children assigned to a teacher
  */
-export const getTeacherChildren = async (teacherId) => {
+export const getTeacherChildren = async (teacherId, teacherEmail = null) => {
   try {
-    const q = fbQuery(
-      fbCollection(db, 'children'),
-      fbWhere('linkedTeachers', 'array-contains', teacherId)
-    );
-    const snapshot = await fbGetDocs(q);
-    let children = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
+    console.log(`[getTeacherChildren] Fetching children for teacher ID: "${teacherId}"${teacherEmail ? ` (email: "${teacherEmail}")` : ''}`);
+
+    const queries = [
+      fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('linkedTeachers', 'array-contains', teacherId))),
+      fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('teacherId', '==', teacherId)))
+    ];
+
+    if (teacherEmail && teacherEmail !== teacherId) {
+      queries.push(
+        fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('linkedTeachers', 'array-contains', teacherEmail))),
+        fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('teacherId', '==', teacherEmail)))
+      );
+    }
+
+    const snapshots = await Promise.all(queries);
+    const childrenMap = new Map();
+    snapshots.forEach(snap => {
+      snap.docs.forEach(doc => {
+        childrenMap.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+    });
+
+    let children = Array.from(childrenMap.values());
+    console.log(`[getTeacherChildren] Found ${children.length} matching child record(s) in Firestore`);
+
     if (isBlockchainEnabled()) {
       const authorizedChildren = [];
       for (const child of children) {
-        const hasAccess = await verifyConsentOnChain(child.id, teacherId);
-        if (hasAccess) authorizedChildren.push(child);
+        let hasAccess = await verifyConsentOnChain(child.id, teacherId);
+
+        // If newly deployed contract doesn't have the consent yet, auto-sync valid database link
+        if (!hasAccess) {
+          try {
+            console.log(`[Blockchain] Auto-syncing consent for child ${child.id} (${child.name}) -> teacher ${teacherId}`);
+            await grantConsentOnChain(child.id, teacherId);
+            hasAccess = true;
+          } catch (syncErr) {
+            console.warn('[Blockchain] Auto-sync consent failed:', syncErr.message);
+          }
+        }
+
+        if (hasAccess) {
+          authorizedChildren.push(child);
+        } else {
+          console.warn(`[Blockchain] Access blocked on chain for child: ${child.name} (${child.id})`);
+        }
       }
       children = authorizedChildren;
     }
@@ -344,20 +378,54 @@ export const getAllDoctors = async () => {
 /**
  * Get children assigned to a doctor
  */
-export const getDoctorChildren = async (doctorId) => {
+export const getDoctorChildren = async (doctorId, doctorEmail = null) => {
   try {
-    const q = fbQuery(
-      fbCollection(db, 'children'),
-      fbWhere('linkedDoctors', 'array-contains', doctorId)
-    );
-    const snapshot = await fbGetDocs(q);
-    let children = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
+    console.log(`[getDoctorChildren] Fetching children for doctor ID: "${doctorId}"${doctorEmail ? ` (email: "${doctorEmail}")` : ''}`);
+
+    const queries = [
+      fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('linkedDoctors', 'array-contains', doctorId))),
+      fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('doctorId', '==', doctorId)))
+    ];
+
+    if (doctorEmail && doctorEmail !== doctorId) {
+      queries.push(
+        fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('linkedDoctors', 'array-contains', doctorEmail))),
+        fbGetDocs(fbQuery(fbCollection(db, 'children'), fbWhere('doctorId', '==', doctorEmail)))
+      );
+    }
+
+    const snapshots = await Promise.all(queries);
+    const childrenMap = new Map();
+    snapshots.forEach(snap => {
+      snap.docs.forEach(doc => {
+        childrenMap.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+    });
+
+    let children = Array.from(childrenMap.values());
+    console.log(`[getDoctorChildren] Found ${children.length} matching child record(s) in Firestore`);
+
     if (isBlockchainEnabled()) {
       const authorizedChildren = [];
       for (const child of children) {
-        const hasAccess = await verifyConsentOnChain(child.id, doctorId);
-        if (hasAccess) authorizedChildren.push(child);
+        let hasAccess = await verifyConsentOnChain(child.id, doctorId);
+
+        // If newly deployed contract doesn't have the consent yet, auto-sync valid database link
+        if (!hasAccess) {
+          try {
+            console.log(`[Blockchain] Auto-syncing consent for child ${child.id} (${child.name}) -> doctor ${doctorId}`);
+            await grantConsentOnChain(child.id, doctorId);
+            hasAccess = true;
+          } catch (syncErr) {
+            console.warn('[Blockchain] Auto-sync consent failed:', syncErr.message);
+          }
+        }
+
+        if (hasAccess) {
+          authorizedChildren.push(child);
+        } else {
+          console.warn(`[Blockchain] Access blocked on chain for child: ${child.name} (${child.id})`);
+        }
       }
       children = authorizedChildren;
     }

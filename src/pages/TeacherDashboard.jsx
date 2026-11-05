@@ -39,7 +39,7 @@ function TeacherDashboard() {
   const loadTeacherChildren = async () => {
     try {
       setLoading(true);
-      const children = await getTeacherChildren(currentUser.id);
+      const children = await getTeacherChildren(currentUser.id, currentUser.email);
       if (children.length > 0) {
         setAssignedChildren(children);
         setSelectedChild(children[0]);
@@ -181,7 +181,7 @@ function TeacherDashboard() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-800 tracking-tight">Classroom Roster</h2>
                 <span className="bg-rose-100 text-rose-600 text-xs font-bold px-2 py-1 rounded-full uppercase tracking-wider">
-                  {mockChildren.length} Students
+                  {assignedChildren.length} Student{assignedChildren.length === 1 ? '' : 's'}
                 </span>
               </div>
 

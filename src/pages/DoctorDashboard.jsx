@@ -90,7 +90,7 @@ function DoctorDashboard() {
   const loadDoctorChildren = async () => {
     try {
       setLoading(true);
-      const children = await getDoctorChildren(currentUser.id);
+      const children = await getDoctorChildren(currentUser.id, currentUser.email);
       if (children.length > 0) {
         setAssignedChildren(children);
         setSelectedChild(children[0]);
